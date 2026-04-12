@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useRef } from "react";
 
 type Member = {
   id: string;
@@ -24,6 +24,15 @@ type Result = {
   objective?: number;
   feasible?: boolean;
   error?: string;
+};
+
+type CsvRow = {
+  name: string;
+  station: string;
+  role: string;
+  capacity: string;
+  want_with: string;
+  awkward_with: string;
 };
 
 type Errors = Record<string, string>;
@@ -60,6 +69,28 @@ function StatCard({ label, value, color }: { label: string; value: string | numb
   );
 }
 
+// CSVパース関数
+function parseCsv(text: string): CsvRow[] {
+  const lines = text.trim().split("\n");
+  if (lines.length < 2) return [];
+  const headers = lines[0].split(",").map((h) => h.trim().replace(/"/g, ""));
+
+  return lines.slice(1).map((line) => {
+    const values = line.split(",").map((v) => v.trim().replace(/"/g, ""));
+    const row: Record<string, string> = {};
+    headers.forEach((h, i) => { row[h] = values[i] || ""; });
+
+    return {
+      name: row["名前"] || row["name"] || "",
+      station: row["最寄り駅"] || row["station"] || "",
+      role: row["参加形態"] || row["role"] || "乗客",
+      capacity: row["定員"] || row["capacity"] || "4",
+      want_with: row["一緒になりたい人"] || row["want_with"] || "",
+      awkward_with: row["気まずい人"] || row["awkward_with"] || "",
+    };
+  }).filter((r) => r.name !== "");
+}
+
 export default function HaishaForm() {
   const [members, setMembers] = useState<Member[]>([createMember(true), createMember(false), createMember(false)]);
   const [gmapsKey, setGmapsKey] = useState("");
@@ -69,6 +100,10 @@ export default function HaishaForm() {
   const [loading, setLoading] = useState(false);
   const [showApi, setShowApi] = useState(false);
   const [errors, setErrors] = useState<Errors>({});
+  const [csvRows, setCsvRows] = useState<CsvRow[]>([]);
+  const [csvFileName, setCsvFileName] = useState("");
+  const [csvApplied, setCsvApplied] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const addMember = (isDriver: boolean) => setMembers((prev) => [...prev, createMember(isDriver)]);
   const removeMember = (id: string) => {
@@ -78,6 +113,38 @@ export default function HaishaForm() {
   const updateMember = (id: string, field: keyof Member, value: string | boolean | number) => {
     setMembers((prev) => prev.map((m) => (m.id === id ? { ...m, [field]: value } : m)));
     setErrors((prev) => ({ ...prev, [`${id}-${field}`]: "" }));
+  };
+
+  // CSVファイル読み込み
+  const handleCsvUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setCsvFileName(file.name);
+    setCsvApplied(false);
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const text = ev.target?.result as string;
+      const rows = parseCsv(text);
+      setCsvRows(rows);
+    };
+    reader.readAsText(file, "UTF-8");
+  };
+
+  // CSVをメンバーに反映
+  const applyCsv = () => {
+    const newMembers: Member[] = csvRows.map((row) => ({
+      id: crypto.randomUUID(),
+      name: row.name,
+      station: row.station,
+      can_drive: row.role === "運転手" || row.role === "driver",
+      capacity: parseInt(row.capacity) || 4,
+      want_with: row.want_with,
+      awkward_with: row.awkward_with,
+    }));
+    setMembers(newMembers);
+    setCsvApplied(true);
+    setResult(null);
+    setErrors({});
   };
 
   const validate = (): boolean => {
@@ -132,18 +199,100 @@ export default function HaishaForm() {
         <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">移動時間・人間関係を考慮した最適配車を計算します</p>
       </div>
 
+      {/* サマリーカード */}
       <div className="grid grid-cols-3 gap-3">
         <StatCard label="メンバー" value={members.length} color="bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300" />
         <StatCard label="運転手" value={drivers.length} color="bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300" />
         <StatCard label="空席数" value={Math.max(0, totalSeats - passengers.length)} color="bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-300" />
       </div>
 
+      {/* CSVアップロードセクション */}
+      <div className="bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 rounded-xl p-4 transition-colors">
+        <h2 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">📄 Google FormのCSVから読み込む</h2>
+
+        {/* アップロードエリア */}
+        <div
+          onClick={() => fileInputRef.current?.click()}
+          className="border-2 border-dashed border-gray-200 dark:border-gray-600 rounded-xl p-6 text-center cursor-pointer hover:border-blue-300 dark:hover:border-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/10 transition-colors"
+        >
+          <p className="text-2xl mb-2">📂</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">
+            {csvFileName ? csvFileName : "CSVファイルをクリックして選択"}
+          </p>
+          <p className="text-xs text-gray-400 mt-1">Google スプレッドシート → ファイル → ダウンロード → CSV</p>
+          <input ref={fileInputRef} type="file" accept=".csv" onChange={handleCsvUpload} className="hidden" />
+        </div>
+
+        {/* CSVプレビュー */}
+        {csvRows.length > 0 && (
+          <div className="mt-4 animate-slide-up">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs font-medium text-gray-600 dark:text-gray-400">{csvRows.length}件のデータを読み込みました</p>
+              {csvApplied && <span className="text-xs text-green-600 dark:text-green-400">✅ 反映済み</span>}
+            </div>
+
+            {/* プレビューテーブル */}
+            <div className="overflow-x-auto rounded-lg border border-gray-100 dark:border-gray-700">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="bg-gray-50 dark:bg-gray-700">
+                    {["名前", "最寄り駅", "参加形態", "定員", "一緒になりたい人", "気まずい人"].map((h) => (
+                      <th key={h} className="px-3 py-2 text-left text-gray-500 dark:text-gray-400 font-medium whitespace-nowrap">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {csvRows.map((row, i) => (
+                    <tr key={i} className="border-t border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors">
+                      <td className="px-3 py-2 text-gray-700 dark:text-gray-300 font-medium">{row.name}</td>
+                      <td className="px-3 py-2 text-gray-600 dark:text-gray-400">{row.station}</td>
+                      <td className="px-3 py-2">
+                        <span className={`px-2 py-0.5 rounded-md text-xs font-medium ${
+                          row.role === "運転手" || row.role === "driver"
+                            ? "bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400"
+                            : "bg-green-50 dark:bg-green-900/30 text-green-600 dark:text-green-400"
+                        }`}>
+                          {row.role === "運転手" || row.role === "driver" ? "🚗 運転手" : "👤 乗客"}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2 text-gray-600 dark:text-gray-400">{row.role === "運転手" ? row.capacity : "-"}</td>
+                      <td className="px-3 py-2 text-gray-600 dark:text-gray-400">{row.want_with || "-"}</td>
+                      <td className="px-3 py-2 text-gray-600 dark:text-gray-400">{row.awkward_with || "-"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <button
+              onClick={applyCsv}
+              className="mt-3 w-full py-2.5 rounded-xl text-sm font-medium bg-green-600 hover:bg-green-700 active:scale-[0.98] text-white transition-all duration-150"
+            >
+              ✅ このデータでメンバーを設定する
+            </button>
+          </div>
+        )}
+
+        {/* CSVフォーマットのヒント */}
+        <details className="mt-3">
+          <summary className="text-xs text-gray-400 cursor-pointer">CSVのフォーマットを確認する</summary>
+          <div className="mt-2 bg-gray-50 dark:bg-gray-700 rounded-lg p-3 text-xs text-gray-500 dark:text-gray-400 font-mono">
+            名前,最寄り駅,参加形態,定員,一緒になりたい人,気まずい人<br/>
+            田中,新宿,運転手,4,山田,<br/>
+            山田,渋谷,乗客,,,<br/>
+            鈴木,池袋,乗客,,田中,
+          </div>
+        </details>
+      </div>
+
+      {/* グローバルエラー */}
       {errors["global"] && (
         <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl px-4 py-3 text-sm text-red-600 dark:text-red-400 animate-slide-up">
           ⚠️ {errors["global"]}
         </div>
       )}
 
+      {/* API設定 */}
       <div className="bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 rounded-xl p-4 transition-colors">
         <button onClick={() => setShowApi(!showApi)}
           className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 w-full text-left transition-colors">
@@ -172,6 +321,7 @@ export default function HaishaForm() {
         )}
       </div>
 
+      {/* メンバー入力 */}
       <div className="bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 rounded-xl p-4 transition-colors">
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-sm font-medium text-gray-700 dark:text-gray-300">メンバー</h2>
@@ -237,6 +387,7 @@ export default function HaishaForm() {
         </div>
       </div>
 
+      {/* 計算ボタン */}
       <button onClick={calculate} disabled={loading}
         className="w-full bg-blue-600 hover:bg-blue-700 active:scale-[0.98] disabled:bg-blue-300 text-white font-medium py-3 rounded-xl text-sm transition-all duration-150">
         {loading ? "計算中..." : "🔍 最適配車を計算する"}
