@@ -1,5 +1,5 @@
 "use client";
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 
 type Member = {
   id: string;
@@ -38,10 +38,14 @@ type CsvRow = {
 type Errors = Record<string, string>;
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const STORAGE_KEY = "haisha_members";
+const ARRIVAL_KEY = "haisha_arrival";
 
 function createMember(isDriver: boolean): Member {
   return { id: crypto.randomUUID(), name: "", station: "", can_drive: isDriver, capacity: 4, want_with: "", awkward_with: "" };
 }
+
+const defaultMembers = [createMember(true), createMember(false), createMember(false)];
 
 function SkeletonCard() {
   return (
@@ -89,7 +93,7 @@ function parseCsv(text: string): CsvRow[] {
 }
 
 export default function HaishaForm() {
-  const [members, setMembers] = useState<Member[]>([createMember(true), createMember(false), createMember(false)]);
+  const [members, setMembers] = useState<Member[]>(defaultMembers);
   const [targetArrival, setTargetArrival] = useState("");
   const [result, setResult] = useState<Result | null>(null);
   const [loading, setLoading] = useState(false);
@@ -98,7 +102,32 @@ export default function HaishaForm() {
   const [csvFileName, setCsvFileName] = useState("");
   const [csvApplied, setCsvApplied] = useState(false);
   const [showOptions, setShowOptions] = useState(false);
+  const [saved, setSaved] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // ページ読み込み時にlocalStorageから復元
+  useEffect(() => {
+    try {
+      const savedMembers = localStorage.getItem(STORAGE_KEY);
+      const savedArrival = localStorage.getItem(ARRIVAL_KEY);
+      if (savedMembers) setMembers(JSON.parse(savedMembers));
+      if (savedArrival) setTargetArrival(savedArrival);
+    } catch {}
+  }, []);
+
+  // メンバー変更時に自動保存
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(members));
+    } catch {}
+  }, [members]);
+
+  // 到着時刻変更時に自動保存
+  useEffect(() => {
+    try {
+      localStorage.setItem(ARRIVAL_KEY, targetArrival);
+    } catch {}
+  }, [targetArrival]);
 
   const addMember = (isDriver: boolean) => setMembers((prev) => [...prev, createMember(isDriver)]);
   const removeMember = (id: string) => {
@@ -108,6 +137,20 @@ export default function HaishaForm() {
   const updateMember = (id: string, field: keyof Member, value: string | boolean | number) => {
     setMembers((prev) => prev.map((m) => (m.id === id ? { ...m, [field]: value } : m)));
     setErrors((prev) => ({ ...prev, [`${id}-${field}`]: "" }));
+  };
+
+  // 全リセット
+  const resetAll = () => {
+    const fresh = [createMember(true), createMember(false), createMember(false)];
+    setMembers(fresh);
+    setTargetArrival("");
+    setResult(null);
+    setErrors({});
+    setCsvRows([]);
+    setCsvFileName("");
+    setCsvApplied(false);
+    localStorage.removeItem(STORAGE_KEY);
+    localStorage.removeItem(ARRIVAL_KEY);
   };
 
   const handleCsvUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -187,10 +230,19 @@ export default function HaishaForm() {
 
   return (
     <div className="space-y-4 animate-fade-in">
-      <div>
-        <h1 className="text-xl font-semibold text-gray-800 dark:text-gray-100">配車最適化</h1>
-        <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">移動時間・人間関係を考慮した最適配車を計算します</p>
+      <div className="flex items-start justify-between">
+        <div>
+          <h1 className="text-xl font-semibold text-gray-800 dark:text-gray-100">配車最適化</h1>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">移動時間・人間関係を考慮した最適配車を計算します</p>
+        </div>
+        <button onClick={resetAll}
+          className="text-xs px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-600 text-gray-400 dark:text-gray-500 hover:bg-red-50 hover:text-red-500 hover:border-red-200 dark:hover:bg-red-900/20 dark:hover:text-red-400 transition-colors">
+          🗑 リセット
+        </button>
       </div>
+
+      {/* 自動保存インジケーター */}
+      <p className="text-xs text-gray-400 dark:text-gray-500">💾 入力内容は自動保存されます</p>
 
       {/* サマリーカード */}
       <div className="grid grid-cols-3 gap-3">
@@ -269,7 +321,7 @@ export default function HaishaForm() {
         </details>
       </div>
 
-      {/* オプション設定（到着時刻） */}
+      {/* オプション設定 */}
       <div className="bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 rounded-xl p-4 transition-colors">
         <button onClick={() => setShowOptions(!showOptions)}
           className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 w-full text-left transition-colors">
