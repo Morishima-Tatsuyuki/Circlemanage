@@ -30,6 +30,7 @@ export interface Transaction {
   amount: number;
   eventId?: string;
   memberId?: string;
+  calendarEntryId?: string;
 }
 
 export const INCOME_CATEGORIES = ["部費", "補助金", "寄付", "イベント収益", "その他"];

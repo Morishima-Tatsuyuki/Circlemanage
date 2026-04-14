@@ -78,12 +78,19 @@ export function useAccountingStore() {
   const memberDuesTotal = (memberId: string) =>
     dues.filter((d) => d.memberId === memberId).reduce((s, d) => s + d.amount, 0);
 
+  const calendarEntryBalance = (calendarEntryId: string) => {
+    const txs = transactions.filter((t) => t.calendarEntryId === calendarEntryId);
+    const income  = txs.filter((t) => t.type === "income").reduce((s, t) => s + t.amount, 0);
+    const expense = txs.filter((t) => t.type === "expense").reduce((s, t) => s + t.amount, 0);
+    return { income, expense, balance: income - expense, txs };
+  };
+
   return {
     members, addMember, deleteMember,
     dues, addDues, deleteDues,
     events, addEvent, deleteEvent,
     transactions, addTransaction, deleteTransaction,
     totalIncome, totalExpense, balance, totalDues,
-    eventBalance, memberDuesTotal,
+    eventBalance, memberDuesTotal, calendarEntryBalance,
   };
 }
