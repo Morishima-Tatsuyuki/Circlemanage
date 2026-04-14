@@ -5,7 +5,8 @@ import { useEffect, useState } from "react";
 import GoogleLoginButton from "@/components/GoogleLoginButton";
 
 const navItems = [
-  { href: "/",           label: "配車最適化",    icon: "🚗" },
+  { href: "/",           label: "ホーム",        icon: "🏠" },
+  { href: "/haisha",     label: "配車",          icon: "🚗" },
   { href: "/accounting", label: "会計",          icon: "💴" },
   { href: "/calendar",   label: "カレンダー",    icon: "📅" },
   { href: "/warikan",    label: "割り勘",        icon: "💸" },
