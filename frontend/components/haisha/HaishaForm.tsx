@@ -304,7 +304,7 @@ export default function HaishaForm() {
     <div className="space-y-4 animate-fade-in">
       <div className="flex items-start justify-between">
         <div>
-          <h1 className="text-xl font-semibold text-gray-800 dark:text-gray-100">配車最適化</h1>
+          <h1 className="text-xl font-semibold text-gray-800 dark:text-gray-100">配車</h1>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">移動時間・人間関係を考慮した最適配車を計算します</p>
         </div>
         <button onClick={resetAll}
