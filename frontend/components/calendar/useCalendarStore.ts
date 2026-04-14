@@ -42,6 +42,14 @@ export const GOOGLE_CALENDAR_COLORS: { id: string; name: string; hex: string }[]
   { id: "11", name: "グラファイト", hex: "#616161" },
 ];
 
+export interface CalendarEntry {
+  id: string;
+  date: string; // YYYY-MM-DD
+  eventName: string;
+  timeSlot: string;
+  colorId: string;
+}
+
 export function useCalendarStore() {
   const [eventNames, setEventNames] = useLocalStorage<string[]>(
     "calendar_event_names",
@@ -51,6 +59,10 @@ export function useCalendarStore() {
     "calendar_time_slots",
     DEFAULT_TIME_SLOTS
   );
+  const [entries, setEntries] = useLocalStorage<CalendarEntry[]>(
+    "calendar_entries",
+    []
+  );
 
   const addEventName = (name: string) => {
     const trimmed = name.trim();
@@ -59,7 +71,6 @@ export function useCalendarStore() {
     setEventNames((prev) => [...prev, trimmed]);
     return true;
   };
-
   const deleteEventName = (name: string) => {
     setEventNames((prev) => prev.filter((n) => n !== name));
   };
@@ -71,13 +82,21 @@ export function useCalendarStore() {
     setTimeSlots((prev) => [...prev, trimmed]);
     return true;
   };
-
   const deleteTimeSlot = (slot: string) => {
     setTimeSlots((prev) => prev.filter((s) => s !== slot));
   };
 
+  const addEntry = (entry: Omit<CalendarEntry, "id">) => {
+    setEntries((prev) => [...prev, { ...entry, id: crypto.randomUUID() }]);
+  };
+  const deleteEntry = (id: string) => {
+    setEntries((prev) => prev.filter((e) => e.id !== id));
+  };
+  const entriesForDate = (date: string) => entries.filter((e) => e.date === date);
+
   return {
     eventNames, addEventName, deleteEventName,
     timeSlots, addTimeSlot, deleteTimeSlot,
+    entries, addEntry, deleteEntry, entriesForDate,
   };
 }
