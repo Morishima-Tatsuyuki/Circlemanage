@@ -1,20 +1,31 @@
 "use client";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import GoogleLoginButton from "@/components/GoogleLoginButton";
 
 const navItems = [
-  { href: "/",           label: "ホーム",        icon: "🏠" },
-  { href: "/haisha",     label: "配車",          icon: "🚗" },
-  { href: "/accounting", label: "会計",          icon: "💴" },
-  { href: "/calendar",   label: "カレンダー",    icon: "📅" },
-  { href: "/warikan",    label: "割り勘",        icon: "💸" },
+  { href: "/",           label: "ホーム",     icon: "🏠" },
+  { href: "/haisha",     label: "配車",       icon: "🚗" },
+  { href: "/accounting", label: "会計",       icon: "💴" },
+  { href: "/calendar",   label: "カレンダー", icon: "📅" },
+  { href: "/warikan",    label: "割り勘",     icon: "💸" },
 ];
+
+const PAGE_TITLES: Record<string, string> = {
+  "/haisha":     "配車",
+  "/accounting": "会計",
+  "/calendar":   "カレンダー",
+  "/warikan":    "割り勘",
+};
 
 export default function Navbar() {
   const pathname = usePathname();
+  const router = useRouter();
   const [dark, setDark] = useState(false);
+
+  const isHome = pathname === "/";
+  const pageTitle = PAGE_TITLES[pathname] ?? "イベント管理";
 
   useEffect(() => {
     const stored = localStorage.getItem("theme");
@@ -36,12 +47,27 @@ export default function Navbar() {
       {/* サイドバー（PC） */}
       <aside className="hidden md:flex flex-col w-56 min-h-screen bg-white dark:bg-gray-900 border-r border-gray-100 dark:border-gray-800 px-3 py-6 fixed top-0 left-0 transition-colors duration-200">
         <div className="mb-6 px-3">
-          <h1 className="text-base font-semibold text-gray-800 dark:text-gray-100">イベント管理</h1>
-          <p className="text-xs text-gray-400 mt-0.5">チームツール</p>
+          <Link href="/" className="block">
+            <h1 className="text-base font-semibold text-gray-800 dark:text-gray-100">イベント管理</h1>
+            <p className="text-xs text-gray-400 mt-0.5">チームツール</p>
+          </Link>
         </div>
-        <div className="px-3 mb-6">
+        <div className="px-3 mb-4">
           <GoogleLoginButton />
         </div>
+
+        {/* 戻るボタン（サブページのみ） */}
+        {!isHome && (
+          <div className="px-3 mb-2">
+            <button
+              onClick={() => router.back()}
+              className="flex items-center gap-2 w-full px-3 py-2 rounded-lg text-sm text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-100 transition-colors">
+              <span className="text-base leading-none">←</span>
+              戻る
+            </button>
+          </div>
+        )}
+
         <nav className="flex flex-col gap-1 flex-1">
           {navItems.map((item) => {
             const active = pathname === item.href;
@@ -67,15 +93,36 @@ export default function Navbar() {
       </aside>
 
       {/* トップバー（モバイル） */}
-      <header className="md:hidden fixed top-0 left-0 right-0 bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800 px-4 py-2 flex items-center justify-between z-50 transition-colors duration-200">
-        <div>
-          <p className="text-sm font-semibold text-gray-800 dark:text-gray-100">イベント管理</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <button onClick={toggleDark} className="text-gray-400 dark:text-gray-500 p-1">
-            <span>{dark ? "☀️" : "🌙"}</span>
-          </button>
-          <GoogleLoginButton />
+      <header className="md:hidden fixed top-0 left-0 right-0 bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800 px-4 z-50 transition-colors duration-200" style={{ height: "52px" }}>
+        <div className="flex items-center justify-between h-full">
+          {/* 左側：戻るボタン or タイトル */}
+          {isHome ? (
+            <p className="text-sm font-semibold text-gray-800 dark:text-gray-100">イベント管理</p>
+          ) : (
+            <button
+              onClick={() => router.back()}
+              className="flex items-center gap-1.5 text-blue-600 dark:text-blue-400 text-sm font-medium -ml-1 px-1 py-1">
+              <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+              </svg>
+              戻る
+            </button>
+          )}
+
+          {/* 中央：サブページのみページ名 */}
+          {!isHome && (
+            <p className="absolute left-1/2 -translate-x-1/2 text-sm font-semibold text-gray-800 dark:text-gray-100 pointer-events-none">
+              {pageTitle}
+            </p>
+          )}
+
+          {/* 右側：ダークモード + ログイン */}
+          <div className="flex items-center gap-2">
+            <button onClick={toggleDark} className="text-gray-400 dark:text-gray-500 p-1">
+              <span>{dark ? "☀️" : "🌙"}</span>
+            </button>
+            <GoogleLoginButton />
+          </div>
         </div>
       </header>
 
