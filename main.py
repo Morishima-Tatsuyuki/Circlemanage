@@ -76,7 +76,12 @@ async def assign_members(data: EventData):
 
     d_matrix = None
     navitime_used = False
-    if NAVITIME_API_KEY and GOOGLE_MAPS_API_KEY:
+    navitime_error = None
+    if not NAVITIME_API_KEY:
+        navitime_error = "NAVITIME_API_KEY が未設定"
+    elif not GOOGLE_MAPS_API_KEY:
+        navitime_error = "GOOGLE_MAPS_API_KEY が未設定"
+    else:
         try:
             target_arrival = None
             if data.target_arrival:
@@ -92,8 +97,9 @@ async def assign_members(data: EventData):
                 target_arrival
             )
             navitime_used = True
-        except Exception:
+        except Exception as e:
             d_matrix = None
+            navitime_error = str(e)
 
     if d_matrix is None:
         d_matrix = [[0] * len(drivers) for _ in range(len(passengers))]
@@ -106,12 +112,14 @@ async def assign_members(data: EventData):
                 passengers, drivers, d_matrix, C, W, driver_W, FIXSTARS_API_KEY
             )
             result["distance_method"] = distance_method
+            result["distance_error"] = navitime_error
             return result
         except Exception:
             pass
 
     result = run_greedy_assignment(passengers, drivers, d_matrix, C, W, driver_W)
     result["distance_method"] = distance_method
+    result["distance_error"] = navitime_error
     return result
 
 
