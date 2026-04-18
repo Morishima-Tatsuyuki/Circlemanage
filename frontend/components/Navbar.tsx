@@ -21,6 +21,19 @@ const WalletIcon = ({ className }: { className: string }) => (
   </svg>
 );
 
+const SunIcon = () => (
+  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="12" cy="12" r="4"/>
+    <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/>
+  </svg>
+);
+
+const MoonIcon = () => (
+  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/>
+  </svg>
+);
+
 const navItems = [
   { href: "/haisha",     label: "配車", Icon: CarIcon },
   { href: "/accounting", label: "会計", Icon: WalletIcon },
@@ -29,8 +42,6 @@ const navItems = [
 const PAGE_TITLES: Record<string, string> = {
   "/haisha":     "配車",
   "/accounting": "会計",
-  "/calendar":   "カレンダー",
-  "/warikan":    "割り勘",
 };
 
 export default function Navbar() {
@@ -39,7 +50,6 @@ export default function Navbar() {
   const [dark, setDark] = useState(false);
 
   const isHome = pathname === "/";
-  const pageTitle = PAGE_TITLES[pathname] ?? "イベント管理";
 
   useEffect(() => {
     const stored = localStorage.getItem("theme");
@@ -58,70 +68,68 @@ export default function Navbar() {
 
   return (
     <>
-      {/* サイドバー（PC） */}
-      <aside className="hidden md:flex flex-col w-56 min-h-screen bg-white dark:bg-gray-900 border-r border-gray-100 dark:border-gray-800 px-3 py-6 fixed top-0 left-0 transition-colors duration-200">
-        <div className="mb-6 px-3">
-          <Link href="/" className="block">
-            <h1 className="text-base font-semibold text-gray-800 dark:text-gray-100">イベント管理</h1>
-            <p className="text-xs text-gray-400 mt-0.5">チームツール</p>
-          </Link>
-        </div>
-        <div className="px-3 mb-4">
-          <GoogleLoginButton />
-        </div>
+      {/* トップナビ（全画面共通） */}
+      <header className="fixed top-0 left-0 right-0 h-14 bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800 z-50 transition-colors duration-200">
+        <div className="max-w-5xl mx-auto px-5 flex items-center justify-between h-full">
 
-        <nav className="flex flex-col gap-1 flex-1">
-          {navItems.map((item) => {
-            const active = pathname === item.href;
-            return (
-              <Link key={item.href} href={item.href}
-                className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all duration-150 ${
-                  active
-                    ? "bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 font-medium"
-                    : "text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-100"
-                }`}>
-                <item.Icon className="w-5 h-5 flex-shrink-0" />
-                {item.label}
-                {active && <span className="ml-auto w-1.5 h-1.5 rounded-full bg-blue-500" />}
-              </Link>
-            );
-          })}
-        </nav>
-        <button onClick={toggleDark}
-          className="mx-3 mt-4 flex items-center gap-2 px-3 py-2 rounded-lg text-xs text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
-          <span>{dark ? "☀️" : "🌙"}</span>
-          {dark ? "ライトモード" : "ダークモード"}
-        </button>
-      </aside>
+          {/* 左: ロゴ + デスクトップナビ */}
+          <div className="flex items-center gap-6">
+            {/* モバイル: 戻るボタン */}
+            {!isHome && (
+              <button
+                onClick={() => router.back()}
+                className="md:hidden flex items-center gap-1 text-blue-600 dark:text-blue-400 text-sm font-medium -ml-1">
+                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M15 19l-7-7 7-7"/>
+                </svg>
+                {PAGE_TITLES[pathname] ? "" : "戻る"}
+              </button>
+            )}
 
-      {/* トップバー（モバイル） */}
-      <header className="md:hidden fixed top-0 left-0 right-0 bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800 px-4 z-50 transition-colors duration-200" style={{ height: "52px" }}>
-        <div className="flex items-center justify-between h-full">
-          {/* 左側：戻るボタン or タイトル */}
-          {isHome ? (
-            <p className="text-sm font-semibold text-gray-800 dark:text-gray-100">イベント管理</p>
-          ) : (
+            {/* ロゴ */}
+            <Link href="/" className="flex items-center gap-2.5 flex-shrink-0">
+              <div className="w-7 h-7 bg-blue-600 rounded-lg flex items-center justify-center">
+                <svg className="w-4 h-4 text-white" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14H9V8h2v8zm4 0h-2V8h2v8z"/>
+                </svg>
+              </div>
+              <span className={`text-sm font-semibold text-gray-800 dark:text-gray-100 ${!isHome ? "hidden md:block" : ""}`}>
+                イベント管理
+              </span>
+            </Link>
+
+            {/* デスクトップ: ナビ項目 */}
+            <nav className="hidden md:flex items-center gap-0.5">
+              {navItems.map((item) => {
+                const active = pathname === item.href;
+                return (
+                  <Link key={item.href} href={item.href}
+                    className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-all duration-150 ${
+                      active
+                        ? "text-blue-700 dark:text-blue-400 font-medium bg-blue-50 dark:bg-blue-900/20"
+                        : "text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-100"
+                    }`}>
+                    <item.Icon className="w-4 h-4" />
+                    {item.label}
+                  </Link>
+                );
+              })}
+            </nav>
+          </div>
+
+          {/* 右: ダークモード + ログイン */}
+          <div className="flex items-center gap-1">
             <button
-              onClick={() => router.back()}
-              className="flex items-center gap-1.5 text-blue-600 dark:text-blue-400 text-sm font-medium -ml-1 px-1 py-1">
-              <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
-              </svg>
-              戻る
-            </button>
-          )}
-
-          {/* 右側：ダークモード + ログイン */}
-          <div className="flex items-center gap-2">
-            <button onClick={toggleDark} className="text-gray-400 dark:text-gray-500 p-1">
-              <span>{dark ? "☀️" : "🌙"}</span>
+              onClick={toggleDark}
+              className="p-2 rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
+              {dark ? <SunIcon /> : <MoonIcon />}
             </button>
             <GoogleLoginButton />
           </div>
         </div>
       </header>
 
-      {/* ボトムバー（モバイル） */}
+      {/* モバイル: ボトムナビ */}
       <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white dark:bg-gray-900 border-t border-gray-100 dark:border-gray-800 flex z-50 transition-colors duration-200">
         {navItems.map((item) => {
           const active = pathname === item.href;

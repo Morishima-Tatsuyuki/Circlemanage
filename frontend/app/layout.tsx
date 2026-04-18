@@ -34,8 +34,8 @@ export default function RootLayout({
       <body className={`${geist.className} bg-gray-50 dark:bg-gray-950 text-gray-900 dark:text-gray-100`}>
         <SessionWrapper>
           <Navbar />
-          <main className="md:ml-56 pb-20 md:pb-0 pt-14 md:pt-0 min-h-screen">
-            <div className="max-w-2xl mx-auto px-4 py-8">
+          <main className="pb-20 md:pb-0 pt-14 min-h-screen">
+            <div className="max-w-3xl mx-auto px-5 py-10">
               {children}
             </div>
           </main>

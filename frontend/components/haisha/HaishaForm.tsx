@@ -378,7 +378,7 @@ export default function HaishaForm() {
 
       {/* STEP 1: Google Form自動作成 */}
       {session && (
-        <div className="bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 rounded-xl p-4 transition-colors">
+        <div className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm border border-gray-100 dark:border-gray-700 transition-colors">
           <div className="flex items-center gap-2 mb-4">
             <StepBadge n={1} />
             <h2 className="text-sm font-medium text-gray-700 dark:text-gray-300">Google Formを自動作成する</h2>
@@ -428,7 +428,7 @@ export default function HaishaForm() {
 
       {/* STEP 2: 回答を取得 */}
       {session && (
-        <div className="bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 rounded-xl p-4 transition-colors">
+        <div className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm border border-gray-100 dark:border-gray-700 transition-colors">
           <div className="flex items-center gap-2 mb-4">
             <StepBadge n={2} />
             <h2 className="text-sm font-medium text-gray-700 dark:text-gray-300">回答を取得してメンバーに反映する</h2>
@@ -452,7 +452,7 @@ export default function HaishaForm() {
       )}
 
       {/* STEP 3: CSVアップロード（Googleログインしていない場合の代替） */}
-      <div className="bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 rounded-xl p-4 transition-colors">
+      <div className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm border border-gray-100 dark:border-gray-700 transition-colors">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
             <StepBadge n={session ? 3 : 1} />
@@ -503,7 +503,7 @@ export default function HaishaForm() {
       </div>
 
       {/* オプション設定 */}
-      <div className="bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 rounded-xl p-4 transition-colors">
+      <div className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm border border-gray-100 dark:border-gray-700 transition-colors">
         <button onClick={() => setShowOptions(!showOptions)}
           className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 w-full text-left transition-colors">
           <span>⏰</span><span>到着希望時刻（任意）</span>
@@ -525,7 +525,7 @@ export default function HaishaForm() {
       )}
 
       {/* STEP 4: メンバー入力 */}
-      <div className="bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 rounded-xl p-4 transition-colors">
+      <div className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm border border-gray-100 dark:border-gray-700 transition-colors">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
             <StepBadge n={session ? 4 : 2} />
@@ -577,7 +577,7 @@ export default function HaishaForm() {
       </div>
 
       {/* STEP 5: 計算ボタン */}
-      <div className="bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 rounded-xl p-4 transition-colors">
+      <div className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm border border-gray-100 dark:border-gray-700 transition-colors">
         <div className="flex items-center gap-2 mb-4">
           <StepBadge n={session ? 5 : 3} />
           <h2 className="text-sm font-medium text-gray-700 dark:text-gray-300">配車を計算する</h2>
