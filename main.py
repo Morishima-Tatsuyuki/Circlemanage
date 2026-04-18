@@ -7,6 +7,7 @@ import os
 import json
 import time
 import requests
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from dotenv import load_dotenv
 
@@ -202,6 +203,32 @@ _distance_cache: dict = load_json(CACHE_FILE, {})
 _coord_cache: dict = load_json(COORD_CACHE_FILE, {})
 _usage_stats: dict = load_json(USAGE_FILE, {"navitime_calls": 0})
 
+def _round_to_30min(dt: datetime) -> str:
+    rounded = (dt.minute // 30) * 30
+    return dt.strftime(f"%Y-%m-%d %H:") + f"{rounded:02d}"
+
+def _prefetch_coords(stations: list) -> None:
+    uncached = [s for s in stations if s not in _coord_cache]
+    if not uncached:
+        return
+
+    import googlemaps
+    gmaps = googlemaps.Client(key=GOOGLE_MAPS_API_KEY)
+
+    def fetch_one(name):
+        result = gmaps.geocode(name)
+        if not result:
+            return name, None
+        loc = result[0]['geometry']['location']
+        return name, {"lat": loc['lat'], "lon": loc['lng']}
+
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        for name, coord in executor.map(fetch_one, uncached):
+            if coord:
+                _coord_cache[name] = coord
+
+    save_json(COORD_CACHE_FILE, _coord_cache)
+
 def get_coords_with_cache(station_name: str) -> Optional[dict]:
     if station_name in _coord_cache:
         return _coord_cache[station_name]
@@ -259,42 +286,55 @@ def get_distance_matrix_navitime(
     driver_stations: List[str],
     target_arrival: datetime
 ) -> List[List[int]]:
-    api_counter = 0
-    d_matrix = []
+    time_slot = _round_to_30min(target_arrival)
 
+    # ④ 未キャッシュ駅を並列ジオコーディング
+    _prefetch_coords(list(set(passenger_stations + driver_stations)))
+
+    # ③ ユニークなペアのみAPIを呼び出す（①時刻スロット付きキー、②対称ルート流用）
+    unique_pairs = []
+    for p in passenger_stations:
+        for d in driver_stations:
+            if p == d:
+                continue
+            if f"{p}_{d}_{time_slot}" not in _distance_cache and f"{d}_{p}_{time_slot}" not in _distance_cache:
+                if (p, d) not in unique_pairs and (d, p) not in unique_pairs:
+                    unique_pairs.append((p, d))
+
+    api_counter = 0
+    for p_station, d_station in unique_pairs:
+        if api_counter > 0 and api_counter % RATE_LIMIT_PER_MIN == 0:
+            time.sleep(60)
+
+        p_coord = _coord_cache.get(p_station)
+        d_coord = _coord_cache.get(d_station)
+
+        if not p_coord or not d_coord:
+            duration = 999
+        else:
+            duration = call_navitime_api(p_coord, d_coord, target_arrival)
+            if duration is None:
+                duration = 999
+            api_counter += 1
+            _usage_stats["navitime_calls"] += 1
+
+        _distance_cache[f"{p_station}_{d_station}_{time_slot}"] = duration
+
+    if unique_pairs:
+        save_json(CACHE_FILE, _distance_cache)
+        save_json(USAGE_FILE, _usage_stats)
+
+    # マトリックス構築（②対称ルート流用）
+    d_matrix = []
     for p_station in passenger_stations:
         row = []
-        p_coord = get_coords_with_cache(p_station)
-
         for d_station in driver_stations:
-            cache_key = f"{p_station}_{d_station}"
-
             if p_station == d_station:
                 row.append(0)
                 continue
-            if cache_key in _distance_cache:
-                row.append(_distance_cache[cache_key])
-                continue
-
-            if api_counter > 0 and api_counter % RATE_LIMIT_PER_MIN == 0:
-                time.sleep(60)
-
-            d_coord = get_coords_with_cache(d_station)
-
-            if not p_coord or not d_coord:
-                duration = 999
-            else:
-                duration = call_navitime_api(p_coord, d_coord, target_arrival)
-                if duration is None:
-                    duration = 999
-                api_counter += 1
-                _usage_stats["navitime_calls"] += 1
-
-            _distance_cache[cache_key] = duration
-            row.append(duration)
-            save_json(CACHE_FILE, _distance_cache)
-            save_json(USAGE_FILE, _usage_stats)
-
+            fwd = f"{p_station}_{d_station}_{time_slot}"
+            rev = f"{d_station}_{p_station}_{time_slot}"
+            row.append(_distance_cache.get(fwd) or _distance_cache.get(rev) or 999)
         d_matrix.append(row)
 
     return d_matrix
