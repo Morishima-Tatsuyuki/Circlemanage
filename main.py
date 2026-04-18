@@ -197,9 +197,14 @@ def save_json(filename, data):
     with open(filename, 'w', encoding='utf-8') as f:
         json.dump(data, f, ensure_ascii=False, indent=4)
 
-def get_coords_with_cache(station_name: str, coord_cache: dict) -> Optional[dict]:
-    if station_name in coord_cache:
-        return coord_cache[station_name]
+# 起動時に1回だけ読み込みRAMに保持
+_distance_cache: dict = load_json(CACHE_FILE, {})
+_coord_cache: dict = load_json(COORD_CACHE_FILE, {})
+_usage_stats: dict = load_json(USAGE_FILE, {"navitime_calls": 0})
+
+def get_coords_with_cache(station_name: str) -> Optional[dict]:
+    if station_name in _coord_cache:
+        return _coord_cache[station_name]
 
     import googlemaps
     gmaps = googlemaps.Client(key=GOOGLE_MAPS_API_KEY)
@@ -209,8 +214,8 @@ def get_coords_with_cache(station_name: str, coord_cache: dict) -> Optional[dict
 
     loc = result[0]['geometry']['location']
     coord = {"lat": loc['lat'], "lon": loc['lng']}
-    coord_cache[station_name] = coord
-    save_json(COORD_CACHE_FILE, coord_cache)
+    _coord_cache[station_name] = coord
+    save_json(COORD_CACHE_FILE, _coord_cache)
     return coord
 
 def call_navitime_api(start_coord: dict, goal_coord: dict, target_arrival: datetime) -> Optional[int]:
@@ -254,16 +259,12 @@ def get_distance_matrix_navitime(
     driver_stations: List[str],
     target_arrival: datetime
 ) -> List[List[int]]:
-    cache = load_json(CACHE_FILE, {})
-    coord_cache = load_json(COORD_CACHE_FILE, {})
-    usage = load_json(USAGE_FILE, {"navitime_calls": 0})
-
     api_counter = 0
     d_matrix = []
 
     for p_station in passenger_stations:
         row = []
-        p_coord = get_coords_with_cache(p_station, coord_cache)
+        p_coord = get_coords_with_cache(p_station)
 
         for d_station in driver_stations:
             cache_key = f"{p_station}_{d_station}"
@@ -271,14 +272,14 @@ def get_distance_matrix_navitime(
             if p_station == d_station:
                 row.append(0)
                 continue
-            if cache_key in cache:
-                row.append(cache[cache_key])
+            if cache_key in _distance_cache:
+                row.append(_distance_cache[cache_key])
                 continue
 
             if api_counter > 0 and api_counter % RATE_LIMIT_PER_MIN == 0:
                 time.sleep(60)
 
-            d_coord = get_coords_with_cache(d_station, coord_cache)
+            d_coord = get_coords_with_cache(d_station)
 
             if not p_coord or not d_coord:
                 duration = 999
@@ -287,12 +288,12 @@ def get_distance_matrix_navitime(
                 if duration is None:
                     duration = 999
                 api_counter += 1
-                usage["navitime_calls"] += 1
+                _usage_stats["navitime_calls"] += 1
 
-            cache[cache_key] = duration
+            _distance_cache[cache_key] = duration
             row.append(duration)
-            save_json(CACHE_FILE, cache)
-            save_json(USAGE_FILE, usage)
+            save_json(CACHE_FILE, _distance_cache)
+            save_json(USAGE_FILE, _usage_stats)
 
         d_matrix.append(row)
 
