@@ -1,8 +1,9 @@
 fastapi
 uvicorn[standard]
+python-dotenv
+requests
+pydantic
 jinja2
 python-multipart
 googlemaps
-amplify
-pyngrok
 pandas

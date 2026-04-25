@@ -20,9 +20,14 @@ NAVITIME_API_HOST = "navitime-route-totalnavi.p.rapidapi.com"
 
 app = FastAPI()
 
+ALLOWED_ORIGINS = os.environ.get(
+    "ALLOWED_ORIGINS",
+    "https://circlemanage.vercel.app,http://localhost:3000"
+).split(",")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://haisha-app.vercel.app", "http://localhost:3000"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
