@@ -32,10 +32,10 @@ export default function HomePage() {
           チームツール
         </div>
         <h1 className="text-5xl font-bold text-gray-900 dark:text-gray-50 tracking-tight mb-4 leading-tight">
-          イベント管理
+          宿泊大会管理
         </h1>
         <p className="text-base text-gray-500 dark:text-gray-400 max-w-xs mx-auto leading-relaxed">
-          チームのイベントを、もっとスマートに管理しよう
+          モルテンカップの運営を楽にしよう
         </p>
       </div>
 

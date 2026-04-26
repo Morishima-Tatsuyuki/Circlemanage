@@ -7,7 +7,7 @@ import SessionWrapper from "@/components/SessionWrapper";
 const geist = Geist({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "イベント管理ツール",
+  title: "宿泊大会管理",
   description: "配車・会計・カレンダー管理アプリ",
 };
 
