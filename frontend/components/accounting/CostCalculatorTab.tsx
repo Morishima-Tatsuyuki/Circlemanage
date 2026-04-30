@@ -308,7 +308,7 @@ export default function CostCalculatorTab() {
             { label: "お酒代（カンマ区切り）", value: alcohol, set: setAlcohol, placeholder: "6316" },
             { label: "ガソリン代（カンマ区切り）", value: petlorem, set: setPetlorem, placeholder: "0" },
             { label: "高速代（カンマ区切り）", value: express, set: setExpress, placeholder: "0" },
-            { label: "立て替え（カンマ区切り）", value: lent, set: setLent, placeholder: "42448,19670,20650" },
+            { label: "グループ立替金 ※乗客で按分（カンマ区切り）", value: lent, set: setLent, placeholder: "42448,19670,20650" },
           ].map(({ label, value, set, placeholder }) => (
             <div key={label}>
               <label className="text-xs text-gray-400 block mb-1">{label}</label>
