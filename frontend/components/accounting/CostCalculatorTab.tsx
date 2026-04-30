@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -14,7 +14,6 @@ type CostMember = {
 };
 
 type CostResult = { name: string; role: string; amount: number };
-
 type CostResponse = {
   costs?: CostResult[];
   summary?: { drivers: number; passengers: number; pass_val: number; drive_val: number };
@@ -23,9 +22,36 @@ type CostResponse = {
 
 function uuid() { return crypto.randomUUID(); }
 
-function parseList(s: string): number[] {
-  return s.split(",").map((v) => v.trim()).filter(Boolean).map(Number).filter((n) => !isNaN(n) && n >= 0);
+function parseCostCsv(text: string): CostMember[] {
+  const lines = text.trim().split(/\r?\n/);
+  if (lines.length < 2) return [];
+  const headers = lines[0].split(",").map((h) => h.trim().replace(/"/g, ""));
+  return lines
+    .slice(1)
+    .map((line) => {
+      const values = line.split(",").map((v) => v.trim().replace(/"/g, ""));
+      const row: Record<string, string> = {};
+      headers.forEach((h, i) => { row[h] = values[i] ?? ""; });
+      const name = row["名前"] ?? "";
+      if (!name) return null;
+      return {
+        id: uuid(),
+        name,
+        can_drive: row["参加形態"] === "運転手",
+        has_insurance: row["保険"] === "あり",
+        pre_paid: row["事前支払い"] === "済",
+        advance_payment: parseFloat(row["立て替え"]) || 0,
+      };
+    })
+    .filter((m): m is CostMember => m !== null);
 }
+
+const TEMPLATE_CSV = [
+  "名前,最寄り駅,参加形態,一緒になりたい人,気まずい人,保険,事前支払い,立て替え",
+  "田中,新宿,運転手,,,なし,,42448",
+  "山田,渋谷,乗客,,,あり,済,",
+  "鈴木,池袋,乗客,,,,未,",
+].join("\n");
 
 const inputCls =
   "w-full border border-gray-200 dark:border-gray-600 rounded-xl px-3 py-2 text-sm bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-400";
@@ -41,26 +67,49 @@ export default function CostCalculatorTab() {
   const [lent, setLent] = useState("");
 
   const [members, setMembers] = useState<CostMember[]>([]);
-  const [newName, setNewName] = useState("");
-  const [newCanDrive, setNewCanDrive] = useState(false);
+  const [csvFileName, setCsvFileName] = useState("");
+  const [csvApplied, setCsvApplied] = useState(false);
+  const [parsedRows, setParsedRows] = useState<CostMember[]>([]);
 
   const [result, setResult] = useState<CostResponse | null>(null);
   const [loading, setLoading] = useState(false);
 
-  const addMember = () => {
-    const name = newName.trim();
-    if (!name) return;
-    setMembers((prev) => [
-      ...prev,
-      { id: uuid(), name, can_drive: newCanDrive, has_insurance: false, pre_paid: false, advance_payment: 0 },
-    ]);
-    setNewName("");
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const parseList = (s: string): number[] =>
+    s.split(",").map((v) => v.trim()).filter(Boolean).map(Number).filter((n) => !isNaN(n) && n >= 0);
+
+  const handleCsvUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setCsvFileName(file.name);
+    setCsvApplied(false);
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const text = ev.target?.result as string;
+      setParsedRows(parseCostCsv(text));
+    };
+    reader.readAsText(file, "UTF-8");
   };
 
-  const updateMember = <K extends keyof CostMember>(id: string, field: K, value: CostMember[K]) =>
-    setMembers((prev) => prev.map((m) => (m.id === id ? { ...m, [field]: value } : m)));
+  const applyCsv = () => {
+    setMembers(parsedRows);
+    setCsvApplied(true);
+    setResult(null);
+  };
 
-  const removeMember = (id: string) => setMembers((prev) => prev.filter((m) => m.id !== id));
+  const removeMember = (id: string) =>
+    setMembers((prev) => prev.filter((m) => m.id !== id));
+
+  const downloadTemplate = () => {
+    const blob = new Blob(["﻿" + TEMPLATE_CSV], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "費用計算テンプレート.csv";
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
   const calculate = async () => {
     setLoading(true);
@@ -95,26 +144,133 @@ export default function CostCalculatorTab() {
 
   return (
     <div className="space-y-5">
-      {/* 費用設定 */}
+
+      {/* STEP 1: CSVアップロード */}
       <div className="bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 rounded-xl p-5 space-y-4">
-        <p className="text-sm font-semibold text-gray-700 dark:text-gray-200">費用設定</p>
+        <div className="flex items-center justify-between">
+          <p className="text-sm font-semibold text-gray-700 dark:text-gray-200">
+            <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-indigo-100 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-400 text-xs font-bold mr-1.5">1</span>
+            参加者CSVを読み込む
+          </p>
+          <button
+            type="button"
+            onClick={downloadTemplate}
+            className="text-xs px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+          >
+            📥 テンプレートDL
+          </button>
+        </div>
+
+        <div
+          onClick={() => fileInputRef.current?.click()}
+          className="border-2 border-dashed border-gray-200 dark:border-gray-600 rounded-xl p-5 text-center cursor-pointer hover:border-indigo-300 dark:hover:border-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/10 transition-colors"
+        >
+          <p className="text-xl mb-1">📂</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">
+            {csvFileName ? csvFileName : "CSVファイルをクリックして選択"}
+          </p>
+          <p className="text-xs text-gray-400 mt-1">
+            Excelファイル → 名前を付けて保存 → CSV形式で保存してからアップロード
+          </p>
+          <input ref={fileInputRef} type="file" accept=".csv" onChange={handleCsvUpload} className="hidden" />
+        </div>
+
+        {parsedRows.length > 0 && (
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs text-gray-600 dark:text-gray-400">{parsedRows.length}件を読み込みました</p>
+              {csvApplied && <span className="text-xs text-green-600 dark:text-green-400">✅ 反映済み</span>}
+            </div>
+            <button
+              type="button"
+              onClick={applyCsv}
+              className="w-full py-2.5 rounded-xl text-sm font-medium bg-indigo-600 hover:bg-indigo-700 active:scale-[.98] text-white transition-all"
+            >
+              ✅ このデータで参加者を設定する
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* 参加者一覧 */}
+      {members.length > 0 && (
+        <div className="bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 rounded-xl p-5 space-y-3">
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-semibold text-gray-700 dark:text-gray-200">
+              <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-indigo-100 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-400 text-xs font-bold mr-1.5">2</span>
+              参加者確認
+            </p>
+            <div className="flex gap-3 text-xs text-gray-400 dark:text-gray-500">
+              <span>🚗 運転手 {drivers.length}名</span>
+              <span>👤 乗客 {passengers.length}名</span>
+            </div>
+          </div>
+          <div className="space-y-2">
+            {members.map((m) => (
+              <div
+                key={m.id}
+                className={`flex items-center gap-3 px-3 py-2.5 rounded-xl border ${
+                  m.can_drive
+                    ? "border-l-4 border-l-blue-400 border-gray-100 dark:border-gray-700"
+                    : "border-l-4 border-l-green-400 border-gray-100 dark:border-gray-700"
+                }`}
+              >
+                <span
+                  className={`text-xs font-medium px-2 py-0.5 rounded-full flex-shrink-0 ${
+                    m.can_drive
+                      ? "bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400"
+                      : "bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400"
+                  }`}
+                >
+                  {m.can_drive ? "運転手" : "乗客"}
+                </span>
+                <span className="flex-1 text-sm text-gray-800 dark:text-gray-100">{m.name}</span>
+                <div className="flex gap-2 text-xs text-gray-400 dark:text-gray-500 flex-shrink-0">
+                  {m.has_insurance && <span className="text-indigo-500 dark:text-indigo-400">保険あり</span>}
+                  {m.pre_paid && <span className="text-green-500 dark:text-green-400">事前支払済</span>}
+                  {m.advance_payment > 0 && (
+                    <span className="text-amber-500 dark:text-amber-400">立替{m.advance_payment.toLocaleString()}円</span>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => removeMember(m.id)}
+                  className="text-gray-300 dark:text-gray-600 hover:text-red-400 transition-colors text-base leading-none flex-shrink-0"
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* STEP 2/3: 費用設定 */}
+      <div className="bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 rounded-xl p-5 space-y-4">
+        <p className="text-sm font-semibold text-gray-700 dark:text-gray-200">
+          <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-indigo-100 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-400 text-xs font-bold mr-1.5">
+            {members.length > 0 ? "3" : "2"}
+          </span>
+          費用設定
+        </p>
         <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="text-xs text-gray-400 block mb-1">参加費（円）</label>
-            <input type="number" value={participate} min={0} onChange={(e) => setParticipate(Number(e.target.value))} className={inputCls} />
-          </div>
-          <div>
-            <label className="text-xs text-gray-400 block mb-1">施設費（円）</label>
-            <input type="number" value={entry} min={0} onChange={(e) => setEntry(Number(e.target.value))} className={inputCls} />
-          </div>
-          <div>
-            <label className="text-xs text-gray-400 block mb-1">保険費（円/人）</label>
-            <input type="number" value={finance} min={0} onChange={(e) => setFinance(Number(e.target.value))} className={inputCls} />
-          </div>
-          <div>
-            <label className="text-xs text-gray-400 block mb-1">事前支払い額（円）</label>
-            <input type="number" value={prePayed} min={0} onChange={(e) => setPrePayed(Number(e.target.value))} className={inputCls} />
-          </div>
+          {[
+            { label: "参加費（円）", value: participate, set: setParticipate },
+            { label: "施設費（円）", value: entry, set: setEntry },
+            { label: "保険費（円/人）", value: finance, set: setFinance },
+            { label: "事前支払い額（円）", value: prePayed, set: setPrePayed },
+          ].map(({ label, value, set }) => (
+            <div key={label}>
+              <label className="text-xs text-gray-400 block mb-1">{label}</label>
+              <input
+                type="number"
+                value={value}
+                min={0}
+                onChange={(e) => set(Number(e.target.value))}
+                className={inputCls}
+              />
+            </div>
+          ))}
         </div>
         <div className="grid grid-cols-2 gap-3">
           {[
@@ -125,131 +281,16 @@ export default function CostCalculatorTab() {
           ].map(({ label, value, set, placeholder }) => (
             <div key={label}>
               <label className="text-xs text-gray-400 block mb-1">{label}</label>
-              <input type="text" value={value} onChange={(e) => set(e.target.value)} placeholder={placeholder} className={inputCls} />
+              <input
+                type="text"
+                value={value}
+                onChange={(e) => set(e.target.value)}
+                placeholder={placeholder}
+                className={inputCls}
+              />
             </div>
           ))}
         </div>
-      </div>
-
-      {/* 参加者 */}
-      <div className="bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 rounded-xl p-5 space-y-4">
-        <div className="flex items-center justify-between">
-          <p className="text-sm font-semibold text-gray-700 dark:text-gray-200">参加者</p>
-          <div className="flex items-center gap-3 text-xs text-gray-400 dark:text-gray-500">
-            <span>運転手 {drivers.length}名</span>
-            <span>乗客 {passengers.length}名</span>
-          </div>
-        </div>
-
-        {/* 追加フォーム */}
-        <div className="flex gap-2">
-          <input
-            type="text"
-            value={newName}
-            onChange={(e) => setNewName(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && addMember()}
-            placeholder="名前を入力"
-            className="flex-1 border border-gray-200 dark:border-gray-600 rounded-xl px-3 py-2 text-sm bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-400"
-          />
-          <div className="flex border border-gray-200 dark:border-gray-600 rounded-xl overflow-hidden flex-shrink-0">
-            <button
-              type="button"
-              onClick={() => setNewCanDrive(false)}
-              className={`px-3 py-2 text-xs font-medium transition-colors ${
-                !newCanDrive ? "bg-green-600 text-white" : "bg-white dark:bg-gray-800 text-gray-400 dark:text-gray-500"
-              }`}
-            >
-              乗客
-            </button>
-            <button
-              type="button"
-              onClick={() => setNewCanDrive(true)}
-              className={`px-3 py-2 text-xs font-medium transition-colors ${
-                newCanDrive ? "bg-blue-600 text-white" : "bg-white dark:bg-gray-800 text-gray-400 dark:text-gray-500"
-              }`}
-            >
-              運転手
-            </button>
-          </div>
-          <button
-            type="button"
-            onClick={addMember}
-            disabled={!newName.trim()}
-            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-200 dark:disabled:bg-gray-700 disabled:text-gray-400 text-white text-sm font-semibold rounded-xl transition-colors flex-shrink-0"
-          >
-            追加
-          </button>
-        </div>
-
-        {members.length === 0 ? (
-          <p className="text-center text-sm text-gray-400 dark:text-gray-500 py-4">参加者を追加してください</p>
-        ) : (
-          <div className="space-y-2">
-            {members.map((m) => (
-              <div
-                key={m.id}
-                className={`border rounded-xl p-3 transition-all ${
-                  m.can_drive
-                    ? "border-l-4 border-l-blue-400 border-gray-100 dark:border-gray-700"
-                    : "border-l-4 border-l-green-400 border-gray-100 dark:border-gray-700"
-                }`}
-              >
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center gap-2">
-                    <span
-                      className={`text-xs font-medium px-2 py-0.5 rounded-full ${
-                        m.can_drive
-                          ? "bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400"
-                          : "bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400"
-                      }`}
-                    >
-                      {m.can_drive ? "運転手" : "乗客"}
-                    </span>
-                    <span className="text-sm font-medium text-gray-800 dark:text-gray-100">{m.name}</span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => removeMember(m.id)}
-                    className="text-xs text-gray-300 dark:text-gray-600 hover:text-red-400 transition-colors"
-                  >
-                    ✕
-                  </button>
-                </div>
-                <div className="grid grid-cols-3 gap-2 items-center">
-                  <label className="flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-400 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={m.has_insurance}
-                      onChange={(e) => updateMember(m.id, "has_insurance", e.target.checked)}
-                      className="rounded border-gray-300 dark:border-gray-600 text-indigo-600"
-                    />
-                    保険あり
-                  </label>
-                  <label className="flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-400 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={m.pre_paid}
-                      onChange={(e) => updateMember(m.id, "pre_paid", e.target.checked)}
-                      className="rounded border-gray-300 dark:border-gray-600 text-indigo-600"
-                    />
-                    事前支払い済
-                  </label>
-                  <div className="flex items-center gap-1">
-                    <span className="text-xs text-gray-400 flex-shrink-0">立替</span>
-                    <input
-                      type="number"
-                      value={m.advance_payment}
-                      min={0}
-                      onChange={(e) => updateMember(m.id, "advance_payment", Number(e.target.value))}
-                      className="flex-1 min-w-0 border border-gray-200 dark:border-gray-600 rounded-lg px-2 py-1 text-xs bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-indigo-400"
-                    />
-                    <span className="text-xs text-gray-400 flex-shrink-0">円</span>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
       </div>
 
       {/* 計算ボタン */}
