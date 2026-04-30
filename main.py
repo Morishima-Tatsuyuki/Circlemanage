@@ -57,6 +57,77 @@ class SheetConfig(BaseModel):
     access_token: str
     spreadsheet_id: str
 
+class CostMember(BaseModel):
+    name: str
+    can_drive: bool
+    has_insurance: bool = False
+    pre_paid: bool = False
+    advance_payment: float = 0
+
+class CostConfig(BaseModel):
+    members: List[CostMember]
+    participate: int = 11500
+    pre_payed: int = 15000
+    entry: int = 20000
+    alcohol: List[int] = []
+    petlorem: List[int] = []
+    express: List[int] = []
+    lent: List[int] = []
+    finance: int = 600
+
+# ==========================================
+# 費用計算エンドポイント
+# ==========================================
+@app.post("/calculate-costs")
+async def calculate_costs(data: CostConfig):
+    drivers = [m for m in data.members if m.can_drive]
+    passengers = [m for m in data.members if not m.can_drive]
+
+    if not drivers:
+        return {"error": "運転手が1人もいません。"}
+    if not passengers:
+        return {"error": "乗客が1人もいません。"}
+
+    sum_petlorem = sum(data.petlorem)
+    sum_express = sum(data.express)
+    sum_lent = sum(data.lent)
+    sum_alcohol = sum(data.alcohol)
+    total = len(drivers) + len(passengers)
+
+    pass_val = (
+        (sum_petlorem + sum_express + sum_lent) / len(passengers)
+        + (sum_alcohol + data.entry) / total
+        + data.participate
+    )
+    drive_val = (sum_alcohol + data.entry) / total + data.participate
+
+    costs = []
+    for m in data.members:
+        pre_check = data.pre_payed if m.pre_paid else 0
+        base = drive_val if m.can_drive else pass_val
+        if m.has_insurance:
+            amount = int(data.finance + base) + 1
+        else:
+            amount = int(base) + 1
+        amount -= pre_check
+        amount -= int(m.advance_payment)
+        costs.append({
+            "name": m.name,
+            "role": "運転手" if m.can_drive else "乗客",
+            "amount": amount,
+        })
+
+    return {
+        "costs": costs,
+        "summary": {
+            "drivers": len(drivers),
+            "passengers": len(passengers),
+            "pass_val": round(pass_val, 1),
+            "drive_val": round(drive_val, 1),
+        },
+    }
+
+
 # ==========================================
 # 配車計算エンドポイント
 # ==========================================

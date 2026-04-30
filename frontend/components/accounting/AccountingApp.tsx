@@ -6,14 +6,16 @@ import OverviewTab from "./OverviewTab";
 import MembersTab from "./MembersTab";
 import EventsTab from "./EventsTab";
 import TransactionsTab from "./TransactionsTab";
+import CostCalculatorTab from "./CostCalculatorTab";
 
-type Tab = "overview" | "members" | "events" | "transactions";
+type Tab = "overview" | "members" | "events" | "transactions" | "cost";
 
 const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: "overview",      label: "概要",   icon: "📊" },
   { id: "members",       label: "メンバー", icon: "👥" },
   { id: "events",        label: "イベント", icon: "🎉" },
   { id: "transactions",  label: "取引",   icon: "💴" },
+  { id: "cost",          label: "費用計算", icon: "🧮" },
 ];
 
 export default function AccountingApp() {
@@ -47,10 +49,11 @@ export default function AccountingApp() {
       </div>
 
       {/* タブコンテンツ */}
-      {tab === "overview"     && <OverviewTab     store={store} />}
-      {tab === "members"      && <MembersTab       store={store} />}
-      {tab === "events"       && <EventsTab        store={store} />}
-      {tab === "transactions" && <TransactionsTab  store={store} />}
+      {tab === "overview"     && <OverviewTab         store={store} />}
+      {tab === "members"      && <MembersTab          store={store} />}
+      {tab === "events"       && <EventsTab           store={store} />}
+      {tab === "transactions" && <TransactionsTab     store={store} />}
+      {tab === "cost"         && <CostCalculatorTab />}
     </div>
   );
 }
