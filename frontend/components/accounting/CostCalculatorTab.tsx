@@ -23,7 +23,9 @@ type CostResponse = {
 function uuid() { return crypto.randomUUID(); }
 
 function parseCostCsv(text: string): CostMember[] {
-  const lines = text.trim().split(/\r?\n/);
+  // BOM除去
+  const clean = text.replace(/^﻿/, "");
+  const lines = clean.trim().split(/\r?\n/);
   if (lines.length < 2) return [];
   const headers = lines[0].split(",").map((h) => h.trim().replace(/"/g, ""));
   return lines
@@ -44,6 +46,26 @@ function parseCostCsv(text: string): CostMember[] {
       };
     })
     .filter((m): m is CostMember => m !== null);
+}
+
+function readFileWithEncoding(file: File): Promise<string> {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const buffer = ev.target?.result as ArrayBuffer;
+      const bytes = new Uint8Array(buffer);
+      // UTF-8 BOM または有効なUTF-8なら UTF-8 で読む、そうでなければ Shift-JIS
+      let text: string;
+      try {
+        const utf8 = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+        text = utf8;
+      } catch {
+        text = new TextDecoder("shift-jis").decode(bytes);
+      }
+      resolve(text);
+    };
+    reader.readAsArrayBuffer(file);
+  });
 }
 
 const TEMPLATE_CSV = [
@@ -70,6 +92,7 @@ export default function CostCalculatorTab() {
   const [csvFileName, setCsvFileName] = useState("");
   const [csvApplied, setCsvApplied] = useState(false);
   const [parsedRows, setParsedRows] = useState<CostMember[]>([]);
+  const [csvError, setCsvError] = useState("");
 
   const [result, setResult] = useState<CostResponse | null>(null);
   const [loading, setLoading] = useState(false);
@@ -79,17 +102,20 @@ export default function CostCalculatorTab() {
   const parseList = (s: string): number[] =>
     s.split(",").map((v) => v.trim()).filter(Boolean).map(Number).filter((n) => !isNaN(n) && n >= 0);
 
-  const handleCsvUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleCsvUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     setCsvFileName(file.name);
     setCsvApplied(false);
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      const text = ev.target?.result as string;
-      setParsedRows(parseCostCsv(text));
-    };
-    reader.readAsText(file, "UTF-8");
+    setCsvError("");
+    // input をリセットして同じファイルを再選択できるようにする
+    e.target.value = "";
+    const text = await readFileWithEncoding(file);
+    const rows = parseCostCsv(text);
+    setParsedRows(rows);
+    if (rows.length === 0) {
+      setCsvError("読み込めませんでした。「名前」列があるCSVか確認してください。ExcelはCSV UTF-8形式で保存してください。");
+    }
   };
 
   const applyCsv = () => {
@@ -175,6 +201,11 @@ export default function CostCalculatorTab() {
           <input ref={fileInputRef} type="file" accept=".csv" onChange={handleCsvUpload} className="hidden" />
         </div>
 
+        {csvError && (
+          <p className="text-xs text-red-500 dark:text-red-400 bg-red-50 dark:bg-red-900/20 rounded-xl px-4 py-3">
+            ⚠️ {csvError}
+          </p>
+        )}
         {parsedRows.length > 0 && (
           <div>
             <div className="flex items-center justify-between mb-2">
