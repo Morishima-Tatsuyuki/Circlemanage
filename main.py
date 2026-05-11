@@ -12,6 +12,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from dotenv import load_dotenv
 
+import psycopg2
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
 
@@ -24,6 +26,107 @@ NAVITIME_API_KEY = os.environ.get("NAVITIME_API_KEY", "")
 logger.info(f"FIXSTARS_API_KEY: {'設定あり' if FIXSTARS_API_KEY else '未設定'}")
 logger.info(f"NAVITIME_API_KEY: {'設定あり' if NAVITIME_API_KEY else '未設定'}")
 logger.info(f"GOOGLE_MAPS_API_KEY: {'設定あり' if GOOGLE_MAPS_API_KEY else '未設定'}")
+
+# ==========================================
+# PostgreSQL 接続
+# ==========================================
+POSTGRES_HOST = os.environ.get("POSTGRES_HOST", "db")
+POSTGRES_PORT = int(os.environ.get("POSTGRES_PORT", "5432"))
+POSTGRES_USER = os.environ.get("POSTGRES_USER", "user")
+POSTGRES_PASSWORD = os.environ.get("POSTGRES_PASSWORD", "password")
+POSTGRES_DB = os.environ.get("POSTGRES_DB", "circledb")
+
+def get_db_connection():
+    return psycopg2.connect(
+        host=POSTGRES_HOST, port=POSTGRES_PORT,
+        user=POSTGRES_USER, password=POSTGRES_PASSWORD, dbname=POSTGRES_DB
+    )
+
+def init_db():
+    try:
+        conn = get_db_connection()
+        with conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS distance_cache (
+                    station_a VARCHAR(200) NOT NULL,
+                    station_b VARCHAR(200) NOT NULL,
+                    time_slot VARCHAR(30) NOT NULL,
+                    duration_minutes INTEGER NOT NULL,
+                    PRIMARY KEY (station_a, station_b, time_slot)
+                )
+            """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS coord_cache (
+                    station_name VARCHAR(200) NOT NULL PRIMARY KEY,
+                    lat DOUBLE PRECISION NOT NULL,
+                    lon DOUBLE PRECISION NOT NULL
+                )
+            """)
+        conn.commit()
+        conn.close()
+        logger.info("DBテーブルの初期化完了")
+    except Exception as e:
+        logger.warning(f"DB初期化失敗（JSONフォールバックで継続）: {e}")
+
+def _load_distance_cache_from_db() -> dict:
+    try:
+        conn = get_db_connection()
+        cache = {}
+        with conn.cursor() as cur:
+            cur.execute("SELECT station_a, station_b, time_slot, duration_minutes FROM distance_cache")
+            for row in cur.fetchall():
+                cache[f"{row[0]}_{row[1]}_{row[2]}"] = row[3]
+        conn.close()
+        logger.info(f"distance_cache: {len(cache)}件をDBから読み込み")
+        return cache
+    except Exception as e:
+        logger.warning(f"distance_cacheのDB読み込み失敗: {e}")
+        return {}
+
+def _load_coord_cache_from_db() -> dict:
+    try:
+        conn = get_db_connection()
+        cache = {}
+        with conn.cursor() as cur:
+            cur.execute("SELECT station_name, lat, lon FROM coord_cache")
+            for row in cur.fetchall():
+                cache[row[0]] = {"lat": row[1], "lon": row[2]}
+        conn.close()
+        logger.info(f"coord_cache: {len(cache)}件をDBから読み込み")
+        return cache
+    except Exception as e:
+        logger.warning(f"coord_cacheのDB読み込み失敗: {e}")
+        return {}
+
+def _save_distance_to_db(station_a: str, station_b: str, time_slot: str, duration: int):
+    try:
+        conn = get_db_connection()
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO distance_cache (station_a, station_b, time_slot, duration_minutes)
+                VALUES (%s, %s, %s, %s)
+                ON CONFLICT (station_a, station_b, time_slot) DO UPDATE
+                SET duration_minutes = EXCLUDED.duration_minutes
+            """, (station_a, station_b, time_slot, duration))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        logger.warning(f"distance_cacheのDB保存失敗: {e}")
+
+def _save_coord_to_db(station_name: str, lat: float, lon: float):
+    try:
+        conn = get_db_connection()
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO coord_cache (station_name, lat, lon)
+                VALUES (%s, %s, %s)
+                ON CONFLICT (station_name) DO UPDATE
+                SET lat = EXCLUDED.lat, lon = EXCLUDED.lon
+            """, (station_name, lat, lon))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        logger.warning(f"coord_cacheのDB保存失敗: {e}")
 NAVITIME_API_HOST = "navitime-route-totalnavi.p.rapidapi.com"
 
 app = FastAPI()
@@ -295,9 +398,7 @@ def build_relation_matrix(
 # ==========================================
 # NAVITIME API による所要時間行列取得（キャッシュ付き）
 # ==========================================
-CACHE_FILE = 'distance_cache.json'
 USAGE_FILE = 'usage_stats.json'
-COORD_CACHE_FILE = 'coord_cache.json'
 RATE_LIMIT_PER_MIN = 50
 
 def load_json(filename, default):
@@ -310,9 +411,10 @@ def save_json(filename, data):
     with open(filename, 'w', encoding='utf-8') as f:
         json.dump(data, f, ensure_ascii=False, indent=4)
 
-# 起動時に1回だけ読み込みRAMに保持
-_distance_cache: dict = load_json(CACHE_FILE, {})
-_coord_cache: dict = load_json(COORD_CACHE_FILE, {})
+# 起動時にDBから読み込みRAMに保持
+init_db()
+_distance_cache: dict = _load_distance_cache_from_db()
+_coord_cache: dict = _load_coord_cache_from_db()
 _usage_stats: dict = load_json(USAGE_FILE, {"navitime_calls": 0})
 
 def _round_to_30min(dt: datetime) -> str:
@@ -338,8 +440,7 @@ def _prefetch_coords(stations: list) -> None:
         for name, coord in executor.map(fetch_one, uncached):
             if coord:
                 _coord_cache[name] = coord
-
-    save_json(COORD_CACHE_FILE, _coord_cache)
+                _save_coord_to_db(name, coord["lat"], coord["lon"])
 
 def normalize_station(name: str) -> str:
     return name.strip().rstrip("駅")
@@ -357,7 +458,7 @@ def get_coords_with_cache(station_name: str) -> Optional[dict]:
     loc = result[0]['geometry']['location']
     coord = {"lat": loc['lat'], "lon": loc['lng']}
     _coord_cache[station_name] = coord
-    save_json(COORD_CACHE_FILE, _coord_cache)
+    _save_coord_to_db(station_name, coord["lat"], coord["lon"])
     return coord
 
 def call_navitime_api(start_coord: dict, goal_coord: dict, target_arrival: datetime) -> Optional[int]:
@@ -434,9 +535,9 @@ def get_distance_matrix_navitime(
             _usage_stats["navitime_calls"] += 1
 
         _distance_cache[f"{p_station}_{d_station}_{time_slot}"] = duration
+        _save_distance_to_db(p_station, d_station, time_slot, duration)
 
     if unique_pairs:
-        save_json(CACHE_FILE, _distance_cache)
         save_json(USAGE_FILE, _usage_stats)
 
     # マトリックス構築（②対称ルート流用）

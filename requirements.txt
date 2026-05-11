@@ -8,3 +8,4 @@ python-multipart
 googlemaps
 pandas
 amplify
+psycopg2-binary
