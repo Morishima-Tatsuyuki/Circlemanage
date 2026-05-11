@@ -131,6 +131,13 @@ NAVITIME_API_HOST = "navitime-route-totalnavi.p.rapidapi.com"
 
 app = FastAPI()
 
+@app.on_event("startup")
+def startup_event():
+    global _distance_cache, _coord_cache
+    init_db()
+    _distance_cache = _load_distance_cache_from_db()
+    _coord_cache = _load_coord_cache_from_db()
+
 ALLOWED_ORIGINS = os.environ.get(
     "ALLOWED_ORIGINS",
     "https://circlemanage.vercel.app,http://localhost:3000"
@@ -411,10 +418,9 @@ def save_json(filename, data):
     with open(filename, 'w', encoding='utf-8') as f:
         json.dump(data, f, ensure_ascii=False, indent=4)
 
-# 起動時にDBから読み込みRAMに保持
-init_db()
-_distance_cache: dict = _load_distance_cache_from_db()
-_coord_cache: dict = _load_coord_cache_from_db()
+# startup イベントで初期化される（モジュール読み込み時点では空）
+_distance_cache: dict = {}
+_coord_cache: dict = {}
 _usage_stats: dict = load_json(USAGE_FILE, {"navitime_calls": 0})
 
 def _round_to_30min(dt: datetime) -> str:
