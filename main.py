@@ -6,16 +6,24 @@ from typing import List, Optional
 import os
 import json
 import time
+import logging
 import requests
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from dotenv import load_dotenv
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+logger = logging.getLogger(__name__)
 
 load_dotenv()
 
 GOOGLE_MAPS_API_KEY = os.environ.get("GOOGLE_MAPS_API_KEY", "")
 FIXSTARS_API_KEY = os.environ.get("FIXSTARS_API_KEY", "")
 NAVITIME_API_KEY = os.environ.get("NAVITIME_API_KEY", "")
+
+logger.info(f"FIXSTARS_API_KEY: {'設定あり' if FIXSTARS_API_KEY else '未設定'}")
+logger.info(f"NAVITIME_API_KEY: {'設定あり' if NAVITIME_API_KEY else '未設定'}")
+logger.info(f"GOOGLE_MAPS_API_KEY: {'設定あり' if GOOGLE_MAPS_API_KEY else '未設定'}")
 NAVITIME_API_HOST = "navitime-route-totalnavi.p.rapidapi.com"
 
 app = FastAPI()
@@ -185,20 +193,30 @@ async def assign_members(data: EventData):
 
     distance_method = "navitime" if navitime_used else "greedy"
 
-    if FIXSTARS_API_KEY:
+    amplify_error = None
+    if not FIXSTARS_API_KEY:
+        amplify_error = "FIXSTARS_API_KEY が未設定"
+        logger.warning("FIXSTARS_API_KEY が未設定のためグリーディーにフォールバック")
+    else:
+        logger.info("Amplify 最適化を開始します")
         try:
             result = run_optimization_amplify(
                 passengers, drivers, d_matrix, C, W, driver_W, FIXSTARS_API_KEY
             )
+            logger.info(f"Amplify 最適化成功: feasible={result.get('feasible')}, objective={result.get('objective')}")
             result["distance_method"] = distance_method
             result["distance_error"] = navitime_error
+            result["amplify_error"] = None
             return result
-        except Exception:
-            pass
+        except Exception as e:
+            amplify_error = str(e)
+            logger.error(f"Amplify 最適化失敗: {e}", exc_info=True)
 
+    logger.info("グリーディー配車を実行します")
     result = run_greedy_assignment(passengers, drivers, d_matrix, C, W, driver_W)
     result["distance_method"] = distance_method
     result["distance_error"] = navitime_error
+    result["amplify_error"] = amplify_error
     return result
 
 
