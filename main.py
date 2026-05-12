@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional
+from passlib.context import CryptContext
 import os
 import json
 import time
@@ -13,6 +14,8 @@ from datetime import datetime
 from dotenv import load_dotenv
 
 import psycopg2
+
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
@@ -60,6 +63,15 @@ def init_db():
                     station_name VARCHAR(200) NOT NULL PRIMARY KEY,
                     lat DOUBLE PRECISION NOT NULL,
                     lon DOUBLE PRECISION NOT NULL
+                )
+            """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS users (
+                    id SERIAL PRIMARY KEY,
+                    email VARCHAR(255) UNIQUE NOT NULL,
+                    password_hash VARCHAR(255) NOT NULL,
+                    name VARCHAR(255) NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
         conn.commit()
@@ -182,6 +194,15 @@ class CostMember(BaseModel):
     pre_paid: bool = False
     advance_payment: float = 0
 
+class UserRegister(BaseModel):
+    email: str
+    password: str
+    name: str
+
+class UserVerify(BaseModel):
+    email: str
+    password: str
+
 class CostConfig(BaseModel):
     members: List[CostMember]
     participate: int = 11500
@@ -192,6 +213,50 @@ class CostConfig(BaseModel):
     express: List[int] = []
     lent: List[int] = []
     finance: int = 600
+
+# ==========================================
+# ユーザー認証エンドポイント
+# ==========================================
+@app.post("/auth/register")
+async def register_user(data: UserRegister):
+    try:
+        conn = get_db_connection()
+        with conn.cursor() as cur:
+            cur.execute("SELECT id FROM users WHERE email = %s", (data.email,))
+            if cur.fetchone():
+                raise HTTPException(status_code=400, detail="このメールアドレスは既に登録されています")
+            password_hash = pwd_context.hash(data.password)
+            cur.execute(
+                "INSERT INTO users (email, password_hash, name) VALUES (%s, %s, %s) RETURNING id",
+                (data.email, password_hash, data.name)
+            )
+            user_id = cur.fetchone()[0]
+        conn.commit()
+        conn.close()
+        return {"id": str(user_id), "email": data.email, "name": data.name}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"ユーザー登録エラー: {e}")
+        raise HTTPException(status_code=500, detail="登録に失敗しました")
+
+@app.post("/auth/verify")
+async def verify_user(data: UserVerify):
+    try:
+        conn = get_db_connection()
+        with conn.cursor() as cur:
+            cur.execute("SELECT id, password_hash, name FROM users WHERE email = %s", (data.email,))
+            row = cur.fetchone()
+        conn.close()
+        if not row or not pwd_context.verify(data.password, row[1]):
+            raise HTTPException(status_code=401, detail="メールアドレスまたはパスワードが違います")
+        return {"id": str(row[0]), "email": data.email, "name": row[2]}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"認証エラー: {e}")
+        raise HTTPException(status_code=500, detail="認証に失敗しました")
+
 
 # ==========================================
 # 費用計算エンドポイント

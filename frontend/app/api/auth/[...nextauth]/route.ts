@@ -1,5 +1,6 @@
 import NextAuth from "next-auth";
 import GoogleProvider from "next-auth/providers/google";
+import CredentialsProvider from "next-auth/providers/credentials";
 
 async function refreshAccessToken(token: any) {
   const res = await fetch("https://oauth2.googleapis.com/token", {
@@ -43,7 +44,28 @@ const handler = NextAuth({
         },
       },
     }),
+    CredentialsProvider({
+      name: "Email",
+      credentials: {
+        email: { label: "メールアドレス", type: "email" },
+        password: { label: "パスワード", type: "password" },
+      },
+      async authorize(credentials) {
+        if (!credentials?.email || !credentials?.password) return null;
+        const res = await fetch(`${process.env.BACKEND_URL}/auth/verify`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: credentials.email, password: credentials.password }),
+        });
+        if (!res.ok) return null;
+        const user = await res.json();
+        return { id: user.id, email: user.email, name: user.name };
+      },
+    }),
   ],
+  pages: {
+    signIn: "/login",
+  },
   callbacks: {
     async jwt({ token, account }) {
       if (account) {
@@ -54,11 +76,9 @@ const handler = NextAuth({
           expires_at: account.expires_at,
         };
       }
-      // トークンがまだ有効な場合はそのまま返す
-      if (Date.now() < (token.expires_at as number) * 1000) {
-        return token;
-      }
-      // 期限切れ → リフレッシュ
+      // credentials ログインは expires_at がないのでリフレッシュ不要
+      if (!token.expires_at) return token;
+      if (Date.now() < (token.expires_at as number) * 1000) return token;
       try {
         return await refreshAccessToken(token);
       } catch {

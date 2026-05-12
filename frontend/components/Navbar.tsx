@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import GoogleLoginButton from "@/components/GoogleLoginButton";
+import AuthButton from "@/components/AuthButton";
 
 const CarIcon = ({ className }: { className: string }) => (
   <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
@@ -120,7 +120,7 @@ export default function Navbar() {
               {dark ? <SunIcon /> : <MoonIcon />}
             </button>
             <div className="hidden md:block">
-              <GoogleLoginButton />
+              <AuthButton />
             </div>
             {/* ハンバーガーボタン */}
             <button
@@ -190,7 +190,7 @@ export default function Navbar() {
             {/* ドロワーフッター */}
             <div className="px-6 py-5 border-t border-gray-100 dark:border-gray-800 space-y-3">
               <div className="md:hidden">
-                <GoogleLoginButton />
+                <AuthButton />
               </div>
               <p className="text-xs text-gray-400 text-center">イベント管理ツール</p>
             </div>
