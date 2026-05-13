@@ -50,3 +50,11 @@ body {
 .animate-slide-in-right {
   animation: slideInRight 0.25s cubic-bezier(0.32, 0.72, 0, 1);
 }
+
+.no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
