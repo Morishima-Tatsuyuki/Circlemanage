@@ -79,10 +79,10 @@ const inputCls =
   "w-full border border-gray-200 dark:border-gray-600 rounded-xl px-3 py-2 text-sm bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-400";
 
 export default function CostCalculatorTab() {
-  const [participate, setParticipate] = useState(11500);
-  const [prePayed, setPrePayed] = useState(15000);
-  const [entry, setEntry] = useState(20000);
-  const [finance, setFinance] = useState(600);
+  const [participate, setParticipate] = useState("");
+  const [prePayed, setPrePayed] = useState("");
+  const [entry, setEntry] = useState("");
+  const [finance, setFinance] = useState("");
   const [alcohol, setAlcohol] = useState("");
   const [petlorem, setPetlorem] = useState("");
   const [express, setExpress] = useState("");
@@ -143,10 +143,10 @@ export default function CostCalculatorTab() {
     try {
       const payload = {
         members: members.map(({ id: _id, ...rest }) => rest),
-        participate,
-        pre_payed: prePayed,
-        entry,
-        finance,
+        participate: Number(participate) || 0,
+        pre_payed: Number(prePayed) || 0,
+        entry: Number(entry) || 0,
+        finance: Number(finance) || 0,
         alcohol: parseList(alcohol),
         petlorem: parseList(petlorem),
         express: parseList(express),
@@ -297,7 +297,8 @@ export default function CostCalculatorTab() {
                 type="number"
                 value={value}
                 min={0}
-                onChange={(e) => set(Number(e.target.value))}
+                placeholder="0"
+                onChange={(e) => set(e.target.value)}
                 className={inputCls}
               />
             </div>
@@ -305,10 +306,10 @@ export default function CostCalculatorTab() {
         </div>
         <div className="grid grid-cols-2 gap-3">
           {[
-            { label: "お酒代（カンマ区切り）", value: alcohol, set: setAlcohol, placeholder: "6316" },
+            { label: "お酒代（カンマ区切り）", value: alcohol, set: setAlcohol, placeholder: "0" },
             { label: "ガソリン代（カンマ区切り）", value: petlorem, set: setPetlorem, placeholder: "0" },
             { label: "高速代（カンマ区切り）", value: express, set: setExpress, placeholder: "0" },
-            { label: "グループ立替金 ※乗客で按分（カンマ区切り）", value: lent, set: setLent, placeholder: "42448,19670,20650" },
+            { label: "グループ立替金 ※乗客で按分（カンマ区切り）", value: lent, set: setLent, placeholder: "0" },
           ].map(({ label, value, set, placeholder }) => (
             <div key={label}>
               <label className="text-xs text-gray-400 block mb-1">{label}</label>
