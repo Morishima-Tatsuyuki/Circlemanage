@@ -25,6 +25,7 @@ export default function LoginPage() {
     if (result?.error) {
       setError("メールアドレスまたはパスワードが違います");
     } else {
+      router.refresh();
       router.push("/");
     }
   };
