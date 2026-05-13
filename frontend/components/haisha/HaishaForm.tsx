@@ -1,6 +1,5 @@
 "use client";
 import { useState, useRef, useEffect } from "react";
-import { useSession } from "next-auth/react";
 
 type Member = {
   id: string;
@@ -36,14 +35,6 @@ type CsvRow = {
   capacity: string;
   want_with: string;
   awkward_with: string;
-};
-
-type FormResult = {
-  form_id?: string;
-  form_url?: string;
-  edit_url?: string;
-  sheet_url?: string;
-  error?: string;
 };
 
 type Errors = Record<string, string>;
@@ -166,7 +157,6 @@ function parseCsv(text: string): CsvRow[] {
 }
 
 export default function HaishaForm() {
-  const { data: session } = useSession();
   const [members, setMembers] = useState<Member[]>(defaultMembers);
   const [targetArrival, setTargetArrival] = useState("");
   const [result, setResult] = useState<Result | null>(null);
@@ -176,14 +166,6 @@ export default function HaishaForm() {
   const [csvFileName, setCsvFileName] = useState("");
   const [csvApplied, setCsvApplied] = useState(false);
   const [showOptions, setShowOptions] = useState(false);
-
-  // Google Form関連
-  const [eventName, setEventName] = useState("イベント参加フォーム");
-  const [formResult, setFormResult] = useState<FormResult | null>(null);
-  const [loadingForm, setLoadingForm] = useState(false);
-  const [spreadsheetId, setSpreadsheetId] = useState("");
-  const [loadingSheet, setLoadingSheet] = useState(false);
-  const [sheetApplied, setSheetApplied] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -222,63 +204,8 @@ export default function HaishaForm() {
     setCsvRows([]);
     setCsvFileName("");
     setCsvApplied(false);
-    setFormResult(null);
-    setSheetApplied(false);
     localStorage.removeItem(STORAGE_KEY);
     localStorage.removeItem(ARRIVAL_KEY);
-  };
-
-  // Google Form作成
-  const createForm = async () => {
-    if (!session?.access_token) return;
-    setLoadingForm(true);
-    setFormResult(null);
-    try {
-      const res = await fetch(`${API_BASE}/create-form`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ access_token: session.access_token, event_name: eventName }),
-      });
-      setFormResult(await res.json());
-    } catch {
-      setFormResult({ error: "フォーム作成に失敗しました。" });
-    } finally {
-      setLoadingForm(false);
-    }
-  };
-
-  // スプレッドシートから回答取得
-  const getResponses = async () => {
-    if (!session?.access_token || !spreadsheetId) return;
-    setLoadingSheet(true);
-    setSheetApplied(false);
-    try {
-      const res = await fetch(`${API_BASE}/get-responses`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ access_token: session.access_token, spreadsheet_id: spreadsheetId }),
-      });
-      const data = await res.json();
-      if (data.error) {
-        alert(data.error);
-      } else {
-        const newMembers = data.members.map((m: any) => ({
-          id: crypto.randomUUID(),
-          name: m.name,
-          station: m.station,
-          can_drive: m.can_drive,
-          capacity: m.capacity,
-          want_with: m.want_with.join(", "),
-          awkward_with: m.awkward_with.join(", "),
-        }));
-        setMembers(newMembers);
-        setSheetApplied(true);
-      }
-    } catch {
-      alert("回答の取得に失敗しました。");
-    } finally {
-      setLoadingSheet(false);
-    }
   };
 
   // CSV読み込み
@@ -378,89 +305,12 @@ export default function HaishaForm() {
         <StatCard label="空席数" value={Math.max(0, totalSeats - passengers.length)} color="bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-300" />
       </div>
 
-      {/* STEP 1: Google Form自動作成 */}
-      {session && (
-        <div className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm border border-gray-100 dark:border-gray-700 transition-colors">
-          <div className="flex items-center gap-2 mb-4">
-            <StepBadge n={1} />
-            <h2 className="text-sm font-medium text-gray-700 dark:text-gray-300">Google Formを自動作成する</h2>
-          </div>
-          <div className="space-y-3">
-            <div>
-              <label className="text-xs text-gray-400 block mb-1">イベント名</label>
-              <input type="text" value={eventName} onChange={(e) => setEventName(e.target.value)}
-                placeholder="例：4月サークル合宿"
-                className="w-full border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100 transition-colors" />
-            </div>
-            <button onClick={createForm} disabled={loadingForm}
-              className="w-full bg-blue-600 hover:bg-blue-700 active:scale-[0.98] disabled:bg-blue-300 text-white font-medium py-2.5 rounded-xl text-sm transition-all duration-150">
-              {loadingForm ? "作成中..." : "📋 フォームを自動作成する"}
-            </button>
-          </div>
-
-          {formResult && (
-            <div className="mt-4 animate-slide-up">
-              {formResult.error ? (
-                <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl px-4 py-3 text-sm text-red-600 dark:text-red-400">
-                  ⚠️ {formResult.error}
-                </div>
-              ) : (
-                <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-xl p-4 space-y-3">
-                  <p className="text-sm font-medium text-green-700 dark:text-green-400">✅ フォームが作成されました！</p>
-                  <div className="space-y-2">
-                    <a href={formResult.form_url} target="_blank" rel="noopener noreferrer"
-                      className="flex items-center gap-2 text-sm text-blue-600 dark:text-blue-400 hover:underline">
-                      📋 参加者用URL（これを共有）
-                    </a>
-                    <a href={formResult.edit_url} target="_blank" rel="noopener noreferrer"
-                      className="flex items-center gap-2 text-sm text-blue-600 dark:text-blue-400 hover:underline">
-                      ✏️ フォーム編集
-                    </a>
-                  </div>
-                  <button onClick={() => setSpreadsheetId(formResult.form_id || "")}
-                    className="text-xs px-3 py-1.5 rounded-lg bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 hover:bg-blue-100 transition-colors">
-                    STEP2に自動入力する
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* STEP 2: 回答を取得 */}
-      {session && (
-        <div className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm border border-gray-100 dark:border-gray-700 transition-colors">
-          <div className="flex items-center gap-2 mb-4">
-            <StepBadge n={2} />
-            <h2 className="text-sm font-medium text-gray-700 dark:text-gray-300">回答を取得してメンバーに反映する</h2>
-          </div>
-          <div className="space-y-3">
-            <div>
-              <label className="text-xs text-gray-400 block mb-1">スプレッドシートID</label>
-              <input type="text" value={spreadsheetId} onChange={(e) => setSpreadsheetId(e.target.value)}
-                placeholder="スプレッドシートURLの /d/【ここ】/edit"
-                className="w-full border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100 transition-colors" />
-            </div>
-            <button onClick={getResponses} disabled={loadingSheet || !spreadsheetId}
-              className="w-full bg-blue-600 hover:bg-blue-700 active:scale-[0.98] disabled:bg-blue-300 text-white font-medium py-2.5 rounded-xl text-sm transition-all duration-150">
-              {loadingSheet ? "取得中..." : "📥 回答を取得してメンバーに反映する"}
-            </button>
-            {sheetApplied && (
-              <p className="text-xs text-green-600 dark:text-green-400 text-center">✅ メンバーに反映しました！下のSTEP4で配車計算できます</p>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* STEP 3: CSVアップロード（Googleログインしていない場合の代替） */}
+      {/* STEP 1: CSVアップロード */}
       <div className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm border border-gray-100 dark:border-gray-700 transition-colors">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
-            <StepBadge n={session ? 3 : 1} />
-            <h2 className="text-sm font-medium text-gray-700 dark:text-gray-300">
-              {session ? "または CSVから読み込む" : "CSVから読み込む"}
-            </h2>
+            <StepBadge n={1} />
+            <h2 className="text-sm font-medium text-gray-700 dark:text-gray-300">CSVから読み込む</h2>
           </div>
           <button
             onClick={() => {
@@ -470,7 +320,7 @@ export default function HaishaForm() {
                 "山田,渋谷,乗客,,,",
                 "鈴木,池袋,乗客,,田中,",
               ].join("\n");
-              const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
+              const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" });
               const url = URL.createObjectURL(blob);
               const a = document.createElement("a");
               a.href = url;
@@ -526,11 +376,11 @@ export default function HaishaForm() {
         </div>
       )}
 
-      {/* STEP 4: メンバー入力 */}
+      {/* STEP 2: メンバー入力 */}
       <div className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm border border-gray-100 dark:border-gray-700 transition-colors">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
-            <StepBadge n={session ? 4 : 2} />
+            <StepBadge n={2} />
             <h2 className="text-sm font-medium text-gray-700 dark:text-gray-300">メンバーを確認・編集する</h2>
           </div>
           <div className="flex gap-2">
@@ -578,10 +428,10 @@ export default function HaishaForm() {
         </div>
       </div>
 
-      {/* STEP 5: 計算ボタン */}
+      {/* STEP 3: 計算ボタン */}
       <div className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm border border-gray-100 dark:border-gray-700 transition-colors">
         <div className="flex items-center gap-2 mb-4">
-          <StepBadge n={session ? 5 : 3} />
+          <StepBadge n={3} />
           <h2 className="text-sm font-medium text-gray-700 dark:text-gray-300">配車を計算する</h2>
         </div>
         <button onClick={calculate} disabled={loading}
