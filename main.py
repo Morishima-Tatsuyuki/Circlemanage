@@ -219,6 +219,8 @@ class CostConfig(BaseModel):
 # ==========================================
 @app.post("/auth/register")
 async def register_user(data: UserRegister):
+    if len(data.password.encode("utf-8")) > 72:
+        raise HTTPException(status_code=400, detail="パスワードは72文字以内にしてください")
     try:
         conn = get_db_connection()
         with conn.cursor() as cur:
