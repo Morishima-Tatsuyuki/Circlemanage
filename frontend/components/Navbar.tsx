@@ -4,22 +4,6 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import AuthButton from "@/components/AuthButton";
 
-const CarIcon = ({ className }: { className: string }) => (
-  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M5 17H3a1 1 0 01-1-1v-4l2.5-5h11l2.5 5v4a1 1 0 01-1 1h-2" />
-    <circle cx="7.5" cy="17" r="1.5" />
-    <circle cx="16.5" cy="17" r="1.5" />
-    <path d="M7.5 15.5h9" />
-  </svg>
-);
-
-const WalletIcon = ({ className }: { className: string }) => (
-  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-    <rect x="2" y="5" width="20" height="14" rx="2" />
-    <path d="M2 10h20M16 14h2" />
-  </svg>
-);
-
 const SunIcon = () => (
   <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
     <circle cx="12" cy="12" r="4"/>
@@ -33,19 +17,11 @@ const MoonIcon = () => (
   </svg>
 );
 
-const navItems = [
-  {
-    href: "/haisha",
-    label: "配車",
-    description: "最適な配車パターンを計算",
-    Icon: CarIcon,
-  },
-  {
-    href: "/accounting",
-    label: "会計",
-    description: "収支を記録・管理",
-    Icon: WalletIcon,
-  },
+const TABS = [
+  { id: "stay",       label: "宿泊大会管理", soon: false },
+  { id: "camp",       label: "合宿管理",     soon: true  },
+  { id: "accounting", label: "会計管理",     soon: true  },
+  { id: "schedule",   label: "スケジュール",  soon: true  },
 ];
 
 const PAGE_TITLES: Record<string, string> = {
@@ -60,6 +36,7 @@ export default function Navbar() {
   const [menuOpen, setMenuOpen] = useState(false);
 
   const isHome = pathname === "/";
+  const pageTitle = PAGE_TITLES[pathname];
 
   useEffect(() => {
     const stored = localStorage.getItem("theme");
@@ -69,7 +46,6 @@ export default function Navbar() {
     }
   }, []);
 
-  // メニューが開いているときはスクロールを無効化
   useEffect(() => {
     document.body.style.overflow = menuOpen ? "hidden" : "";
     return () => { document.body.style.overflow = ""; };
@@ -106,9 +82,20 @@ export default function Navbar() {
                   <circle cx="16" cy="12" r="3"/>
                 </svg>
               </div>
-              <span className={`text-sm font-semibold text-gray-800 dark:text-gray-100 ${!isHome ? "hidden md:block" : ""}`}>
-                イベント管理
-              </span>
+              {isHome ? (
+                <span className="text-sm font-semibold text-gray-800 dark:text-gray-100">
+                  サークル管理
+                </span>
+              ) : (
+                <>
+                  <span className="text-sm font-semibold text-gray-800 dark:text-gray-100 md:hidden">
+                    {pageTitle ?? "サークル管理"}
+                  </span>
+                  <span className="text-sm font-semibold text-gray-800 dark:text-gray-100 hidden md:block">
+                    サークル管理
+                  </span>
+                </>
+              )}
             </Link>
           </div>
 
@@ -122,7 +109,6 @@ export default function Navbar() {
             <div className="hidden md:block">
               <AuthButton />
             </div>
-            {/* ハンバーガーボタン */}
             <button
               onClick={() => setMenuOpen(true)}
               className="p-2 rounded-lg text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors ml-1"
@@ -138,10 +124,8 @@ export default function Navbar() {
       {/* ドロワーオーバーレイ */}
       {menuOpen && (
         <div className="fixed inset-0 z-[100]" onClick={() => setMenuOpen(false)}>
-          {/* 背景ブラー */}
           <div className="absolute inset-0 bg-black/30 backdrop-blur-sm animate-fade-in" />
 
-          {/* ドロワー本体 */}
           <div
             className="absolute right-0 top-0 h-full w-72 bg-white dark:bg-gray-900 shadow-2xl flex flex-col animate-slide-in-right"
             onClick={(e) => e.stopPropagation()}>
@@ -160,31 +144,23 @@ export default function Navbar() {
 
             {/* ナビ項目 */}
             <nav className="flex-1 px-4 py-6 space-y-1">
-              {navItems.map((item) => {
-                const active = pathname === item.href;
-                return (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    onClick={() => setMenuOpen(false)}
-                    className={`flex items-center gap-4 px-4 py-3.5 rounded-xl transition-all duration-150 ${
-                      active
-                        ? "bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400"
-                        : "text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
-                    }`}>
-                    <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${
-                      active ? "bg-blue-100 dark:bg-blue-900/40" : "bg-gray-100 dark:bg-gray-800"
-                    }`}>
-                      <item.Icon className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <p className="text-sm font-medium">{item.label}</p>
-                      <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">{item.description}</p>
-                    </div>
-                    {active && <span className="ml-auto w-1.5 h-1.5 rounded-full bg-blue-500 flex-shrink-0" />}
-                  </Link>
-                );
-              })}
+              {TABS.map((tab) => (
+                <button
+                  key={tab.id}
+                  onClick={() => {
+                    router.push(`/?tab=${tab.id}`);
+                    setMenuOpen(false);
+                  }}
+                  className="w-full flex items-center justify-between px-4 py-3.5 rounded-xl text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-all duration-150"
+                >
+                  <span className="text-sm font-medium">{tab.label}</span>
+                  {tab.soon && (
+                    <span className="text-xs text-gray-400 dark:text-gray-500 bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded-full">
+                      Soon
+                    </span>
+                  )}
+                </button>
+              ))}
             </nav>
 
             {/* ドロワーフッター */}
@@ -192,7 +168,7 @@ export default function Navbar() {
               <div className="md:hidden">
                 <AuthButton />
               </div>
-              <p className="text-xs text-gray-400 text-center">イベント管理ツール</p>
+              <p className="text-xs text-gray-400 text-center">サークル管理ツール</p>
             </div>
           </div>
         </div>
