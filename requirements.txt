@@ -10,3 +10,4 @@ pandas
 amplify
 psycopg2-binary
 passlib[bcrypt]
+bcrypt==4.0.1
