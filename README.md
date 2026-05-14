@@ -1,9 +1,9 @@
 # サークル管理アプリ
 
 大学サークル・チームの運営を支援するフルスタック Web アプリ。  
-**配車最適化・会計管理・カレンダー・割り勘**の 4 機能を 1 つにまとめたオールインワンツールです。
+**宿泊大会管理・合宿管理・会計管理・スケジュール**の 4 タブ構成で、イベント運営をまとめて管理できます。
 
-👉 **アプリ URL**: https://circlemanage.vercel.app  
+👉 **アプリ URL**: https://practice.circlemanage.jp  
 📱 スマホのホーム画面にも追加可能（PWA 対応）
 
 ---
@@ -19,13 +19,29 @@
 | DB | PostgreSQL（psycopg2 / API キャッシュ用） |
 | 最適化エンジン | Fixstars Amplify（量子アニーリング） |
 | 外部 API | NAVITIME（電車所要時間）/ Google Maps Geocoding / Google Forms / Google Sheets |
-| デプロイ | Vercel（フロントエンド）/ Render（バックエンド） |
+| インフラ | Raspberry Pi（自己ホスト）/ Cloudflare Tunnel（外部公開） |
+
+---
+
+## 画面構成
+
+```
+ホーム
+├── 宿泊大会管理（実装済み）
+│     ├── 配車
+│     └── 会計
+├── 合宿管理（開発中）
+├── 会計管理（開発中）
+└── スケジュール（開発中）
+```
 
 ---
 
 ## 機能一覧
 
-### 🚗 配車最適化（メイン機能）
+### 🏠 宿泊大会管理タブ
+
+#### 🚗 配車
 
 メンバーの最寄り駅・ドライバー/乗客・定員・人間関係（一緒になりたい人 / 気まずい人）を入力すると、**乗車時間と人間関係スコアを同時に最適化した配車結果**を出力します。
 
@@ -39,7 +55,7 @@
 - CSV インポートによる一括入力
 - 30 分単位の時刻スロットでキャッシュを管理し API 消費を最小化
 
-### 💴 会計管理
+#### 💴 会計
 
 サークルの収支をイベント・メンバーと紐づけて管理します。
 
@@ -47,23 +63,6 @@
 - イベントごとの収支サマリー
 - メンバー管理と会費の記録
 - データは localStorage に永続化
-
-### 📅 カレンダー
-
-サークルの活動スケジュールを月カレンダーで管理します。
-
-- イベントの登録・表示
-- Googleカレンダーへの自動追加（Google ログイン時）
-- イベントに会計・割り勘パネルを紐づけ
-
-### 💸 割り勘
-
-3ステップの直感的な UI で支払いを記録し、精算金額を自動計算します。
-
-- イベント名・日付・時間帯を指定してセッション作成（カレンダーに自動反映）
-- **支払い人 → 対象者 → 金額** の 3 ステップ入力
-- 端数処理の選択（切り上げ / 四捨五入 / 切り捨て）
-- 最少送金回数になるよう精算方法を自動計算
 
 ---
 
@@ -114,17 +113,19 @@ Google OAuth（NextAuth.js）に加え、メール/パスワード認証も独�
 ## システム構成
 
 ```
-ブラウザ (Next.js / Vercel)
+ブラウザ
     │
     ├─ Google OAuth ─── NextAuth.js
     │
-    └─ REST API ──────── FastAPI (Render)
-                              │
-                              ├─ NAVITIME API (RapidAPI)
-                              ├─ Google Maps Geocoding API
-                              ├─ Google Forms / Sheets API
-                              ├─ Fixstars Amplify
-                              └─ PostgreSQL (キャッシュ)
+    └─ HTTPS ──── Cloudflare Tunnel ──── Raspberry Pi（自宅サーバー）
+                                              │
+                                              ├─ Next.js（フロントエンド）
+                                              ├─ FastAPI（バックエンド）
+                                              │     ├─ NAVITIME API (RapidAPI)
+                                              │     ├─ Google Maps Geocoding API
+                                              │     ├─ Google Forms / Sheets API
+                                              │     └─ Fixstars Amplify
+                                              └─ PostgreSQL（キャッシュ）
 ```
 
 ---
