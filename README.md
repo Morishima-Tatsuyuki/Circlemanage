@@ -10,11 +10,11 @@
 
 ## ドキュメント
 
-| ファイル | 内容 |
-|----------|------|
-| [docs/frontend.md](./docs/frontend.md) | フロントエンド構成・認証設計・セットアップ |
-| [docs/backend.md](./docs/backend.md) | API エンドポイント・最適化アルゴリズム・キャッシュ設計 |
-| [docs/server.md](./docs/server.md) | Raspberry Pi 構築・Cloudflare Tunnel・デプロイ経緯 |
+| ファイル | 内容 | 担当 |
+|----------|------|------|
+| [docs/frontend.md](./docs/frontend.md) | フロントエンド構成・認証設計・セットアップ | 南（一部森島） |
+| [docs/backend.md](./docs/backend.md) | API エンドポイント・最適化アルゴリズム・キャッシュ設計 | 阿部（一部南） |
+| [docs/server.md](./docs/server.md) | Raspberry Pi 構築・Cloudflare Tunnel・デプロイ経緯 | 森島 |
 
 ---
 
