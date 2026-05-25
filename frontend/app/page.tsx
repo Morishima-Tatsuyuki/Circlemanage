@@ -1,13 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Suspense, useEffect, useState } from "react";
-import { useSearchParams } from "next/navigation";
-
-const OUTER_TABS = [
-  { id: "team",     label: "チーム" },
-  { id: "personal", label: "個人" },
-];
+import { Suspense, useState } from "react";
 
 const INNER_TABS = [
   { id: "stay",       label: "宿泊大会管理" },
@@ -47,11 +41,21 @@ function ComingSoon({ label }: { label: string }) {
   );
 }
 
-function TeamContent() {
+function TeamContent({ onBack }: { onBack: () => void }) {
   const [activeTab, setActiveTab] = useState("stay");
 
   return (
-    <div className="mt-6 space-y-6">
+    <div className="space-y-6">
+      <button
+        onClick={onBack}
+        className="flex items-center gap-1 text-sm text-blue-600 dark:text-blue-400 font-medium"
+      >
+        <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M15 19l-7-7 7-7"/>
+        </svg>
+        チーム選択に戻る
+      </button>
+
       <div className="flex gap-1 bg-gray-100 dark:bg-gray-800 rounded-xl p-1 overflow-x-auto no-scrollbar">
         {INNER_TABS.map((tab) => (
           <button
@@ -108,49 +112,55 @@ function TeamContent() {
 }
 
 function HomeContent() {
-  const searchParams = useSearchParams();
-  const [activeTab, setActiveTab] = useState("team");
+  const [view, setView] = useState<"select" | "team" | "personal">("select");
 
-  useEffect(() => {
-    const tab = searchParams.get("tab");
-    if (tab && OUTER_TABS.some((t) => t.id === tab)) {
-      setActiveTab(tab);
-    }
-  }, [searchParams]);
+  if (view === "team")     return <TeamContent onBack={() => setView("select")} />;
+  if (view === "personal") return (
+    <div className="space-y-6">
+      <button
+        onClick={() => setView("select")}
+        className="flex items-center gap-1 text-sm text-blue-600 dark:text-blue-400 font-medium"
+      >
+        <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M15 19l-7-7 7-7"/>
+        </svg>
+        チーム選択に戻る
+      </button>
+      <ComingSoon label="個人" />
+    </div>
+  );
 
   return (
     <div className="space-y-8">
-
-      {/* グリーティング */}
       <div className="pt-4">
-        <p className="text-2xl font-bold text-gray-800 dark:text-gray-100">
-          こんにちは
-        </p>
-        <p className="text-sm text-gray-400 dark:text-gray-500 mt-1">
-          今日も運営を楽にしよう
-        </p>
+        <p className="text-2xl font-bold text-gray-800 dark:text-gray-100">こんにちは</p>
+        <p className="text-sm text-gray-400 dark:text-gray-500 mt-1">今日も運営を楽にしよう</p>
       </div>
 
-      {/* チーム / 個人 タブ */}
-      <div>
-        <div className="flex gap-1 bg-gray-100 dark:bg-gray-800 rounded-xl p-1">
-          {OUTER_TABS.map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-150 ${
-                activeTab === tab.id
-                  ? "bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 shadow-sm"
-                  : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
+      <div className="grid grid-cols-2 gap-4">
+        <button
+          onClick={() => setView("team")}
+          className="group bg-white dark:bg-gray-800 rounded-2xl p-8 flex flex-col items-center gap-4 shadow-sm hover:shadow-lg border border-gray-100 dark:border-gray-700 hover:border-blue-100 dark:hover:border-blue-800 active:scale-[.98] transition-all duration-200"
+        >
+          <div className="w-14 h-14 bg-blue-100 dark:bg-blue-900/40 rounded-2xl flex items-center justify-center text-3xl">
+            👥
+          </div>
+          <div className="text-center">
+            <p className="text-lg font-semibold text-gray-800 dark:text-gray-100">チーム</p>
+          </div>
+        </button>
 
-        {activeTab === "team"     && <TeamContent />}
-        {activeTab === "personal" && <ComingSoon label="個人" />}
+        <button
+          onClick={() => setView("personal")}
+          className="group bg-white dark:bg-gray-800 rounded-2xl p-8 flex flex-col items-center gap-4 shadow-sm hover:shadow-lg border border-gray-100 dark:border-gray-700 hover:border-purple-100 dark:hover:border-purple-800 active:scale-[.98] transition-all duration-200"
+        >
+          <div className="w-14 h-14 bg-purple-100 dark:bg-purple-900/40 rounded-2xl flex items-center justify-center text-3xl">
+            👤
+          </div>
+          <div className="text-center">
+            <p className="text-lg font-semibold text-gray-800 dark:text-gray-100">個人</p>
+          </div>
+        </button>
       </div>
     </div>
   );
