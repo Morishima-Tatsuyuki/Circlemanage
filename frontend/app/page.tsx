@@ -53,7 +53,7 @@ function TeamContent({ onBack }: { onBack: () => void }) {
         <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
           <path d="M15 19l-7-7 7-7"/>
         </svg>
-        チーム選択に戻る
+        選択に戻る
       </button>
 
       <div className="flex gap-1 bg-gray-100 dark:bg-gray-800 rounded-xl p-1 overflow-x-auto no-scrollbar">
@@ -124,9 +124,9 @@ function HomeContent() {
         <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
           <path d="M15 19l-7-7 7-7"/>
         </svg>
-        チーム選択に戻る
+        選択に戻る
       </button>
-      <ComingSoon label="個人" />
+      <ComingSoon label="メンバー" />
     </div>
   );
 
@@ -143,10 +143,10 @@ function HomeContent() {
           className="group bg-white dark:bg-gray-800 rounded-2xl p-8 flex flex-col items-center gap-4 shadow-sm hover:shadow-lg border border-gray-100 dark:border-gray-700 hover:border-blue-100 dark:hover:border-blue-800 active:scale-[.98] transition-all duration-200"
         >
           <div className="w-14 h-14 bg-blue-100 dark:bg-blue-900/40 rounded-2xl flex items-center justify-center text-3xl">
-            👥
+            👑
           </div>
           <div className="text-center">
-            <p className="text-lg font-semibold text-gray-800 dark:text-gray-100">チーム</p>
+            <p className="text-lg font-semibold text-gray-800 dark:text-gray-100">幹部</p>
           </div>
         </button>
 
@@ -158,7 +158,7 @@ function HomeContent() {
             👤
           </div>
           <div className="text-center">
-            <p className="text-lg font-semibold text-gray-800 dark:text-gray-100">個人</p>
+            <p className="text-lg font-semibold text-gray-800 dark:text-gray-100">メンバー</p>
           </div>
         </button>
       </div>
