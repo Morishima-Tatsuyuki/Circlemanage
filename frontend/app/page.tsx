@@ -4,7 +4,12 @@ import Link from "next/link";
 import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
-const TABS = [
+const OUTER_TABS = [
+  { id: "team",     label: "チーム" },
+  { id: "personal", label: "個人" },
+];
+
+const INNER_TABS = [
   { id: "stay",       label: "宿泊大会管理" },
   { id: "camp",       label: "合宿管理" },
   { id: "accounting", label: "会計管理" },
@@ -42,13 +47,73 @@ function ComingSoon({ label }: { label: string }) {
   );
 }
 
+function TeamContent() {
+  const [activeTab, setActiveTab] = useState("stay");
+
+  return (
+    <div className="mt-6 space-y-6">
+      <div className="flex gap-1 bg-gray-100 dark:bg-gray-800 rounded-xl p-1 overflow-x-auto no-scrollbar">
+        {INNER_TABS.map((tab) => (
+          <button
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id)}
+            className={`flex-shrink-0 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-150 ${
+              activeTab === tab.id
+                ? "bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 shadow-sm"
+                : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      <div>
+        {activeTab === "stay" && (
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            {STAY_ITEMS.map((item) => (
+              <Link
+                key={item.href}
+                href={item.href}
+                className="group bg-white dark:bg-gray-800 rounded-2xl p-6 flex flex-col gap-5 shadow-sm hover:shadow-lg border border-gray-100 dark:border-gray-700 hover:border-blue-100 dark:hover:border-blue-800 active:scale-[.98] transition-all duration-200"
+              >
+                <div className="flex items-start justify-between">
+                  <div className={`w-12 h-12 ${item.iconBg} rounded-xl flex items-center justify-center text-2xl`}>
+                    {item.icon}
+                  </div>
+                  <span className="text-xs font-medium text-blue-500 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20 px-2.5 py-1 rounded-full">
+                    {item.tag}
+                  </span>
+                </div>
+                <div>
+                  <p className="text-xl font-semibold text-gray-800 dark:text-gray-100 mb-1.5">{item.label}</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400 leading-relaxed">{item.description}</p>
+                </div>
+                <div className="flex items-center text-blue-600 dark:text-blue-400 text-sm font-medium gap-1 group-hover:gap-2 transition-all">
+                  開く
+                  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M5 12h14M12 5l7 7-7 7"/>
+                  </svg>
+                </div>
+              </Link>
+            ))}
+          </div>
+        )}
+        {activeTab === "camp"       && <ComingSoon label="合宿管理" />}
+        {activeTab === "accounting" && <ComingSoon label="会計管理" />}
+        {activeTab === "schedule"   && <ComingSoon label="スケジュール" />}
+      </div>
+    </div>
+  );
+}
+
 function HomeContent() {
   const searchParams = useSearchParams();
-  const [activeTab, setActiveTab] = useState("stay");
+  const [activeTab, setActiveTab] = useState("team");
 
   useEffect(() => {
     const tab = searchParams.get("tab");
-    if (tab && TABS.some((t) => t.id === tab)) {
+    if (tab && OUTER_TABS.some((t) => t.id === tab)) {
       setActiveTab(tab);
     }
   }, [searchParams]);
@@ -66,14 +131,14 @@ function HomeContent() {
         </p>
       </div>
 
-      {/* タブ */}
+      {/* チーム / 個人 タブ */}
       <div>
-        <div className="flex gap-1 bg-gray-100 dark:bg-gray-800 rounded-xl p-1 overflow-x-auto no-scrollbar">
-          {TABS.map((tab) => (
+        <div className="flex gap-1 bg-gray-100 dark:bg-gray-800 rounded-xl p-1">
+          {OUTER_TABS.map((tab) => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`flex-shrink-0 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-150 ${
+              className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-150 ${
                 activeTab === tab.id
                   ? "bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 shadow-sm"
                   : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
@@ -84,45 +149,8 @@ function HomeContent() {
           ))}
         </div>
 
-        {/* タブコンテンツ */}
-        <div className="mt-6">
-
-          {activeTab === "stay" && (
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              {STAY_ITEMS.map((item) => (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className="group bg-white dark:bg-gray-800 rounded-2xl p-6 flex flex-col gap-5 shadow-sm hover:shadow-lg border border-gray-100 dark:border-gray-700 hover:border-blue-100 dark:hover:border-blue-800 active:scale-[.98] transition-all duration-200"
-                >
-                  <div className="flex items-start justify-between">
-                    <div className={`w-12 h-12 ${item.iconBg} rounded-xl flex items-center justify-center text-2xl`}>
-                      {item.icon}
-                    </div>
-                    <span className="text-xs font-medium text-blue-500 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20 px-2.5 py-1 rounded-full">
-                      {item.tag}
-                    </span>
-                  </div>
-                  <div>
-                    <p className="text-xl font-semibold text-gray-800 dark:text-gray-100 mb-1.5">{item.label}</p>
-                    <p className="text-sm text-gray-500 dark:text-gray-400 leading-relaxed">{item.description}</p>
-                  </div>
-                  <div className="flex items-center text-blue-600 dark:text-blue-400 text-sm font-medium gap-1 group-hover:gap-2 transition-all">
-                    開く
-                    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M5 12h14M12 5l7 7-7 7"/>
-                    </svg>
-                  </div>
-                </Link>
-              ))}
-            </div>
-          )}
-
-          {activeTab === "camp"       && <ComingSoon label="合宿管理" />}
-          {activeTab === "accounting" && <ComingSoon label="会計管理" />}
-          {activeTab === "schedule"   && <ComingSoon label="スケジュール" />}
-
-        </div>
+        {activeTab === "team"     && <TeamContent />}
+        {activeTab === "personal" && <ComingSoon label="個人" />}
       </div>
     </div>
   );
