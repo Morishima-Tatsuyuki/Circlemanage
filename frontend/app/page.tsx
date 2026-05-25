@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { Suspense, useState } from "react";
+import RosterApp from "@/components/roster/RosterApp";
 
 const INNER_TABS = [
   { id: "roster",     label: "名簿" },
@@ -104,7 +105,7 @@ function TeamContent({ onBack }: { onBack: () => void }) {
             ))}
           </div>
         )}
-        {activeTab === "roster"     && <ComingSoon label="名簿" />}
+        {activeTab === "roster"     && <RosterApp />}
         {activeTab === "schedule"   && <ComingSoon label="スケジュール" />}
         {activeTab === "accounting" && <ComingSoon label="会計管理" />}
         {activeTab === "camp"       && <ComingSoon label="合宿管理" />}
