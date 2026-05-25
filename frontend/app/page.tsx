@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { Suspense, useEffect, useState } from "react";
-import { useSession } from "next-auth/react";
 import { useSearchParams } from "next/navigation";
 
 const TABS = [
@@ -44,7 +43,6 @@ function ComingSoon({ label }: { label: string }) {
 }
 
 function HomeContent() {
-  const { data: session } = useSession();
   const searchParams = useSearchParams();
   const [activeTab, setActiveTab] = useState("stay");
 
@@ -55,15 +53,13 @@ function HomeContent() {
     }
   }, [searchParams]);
 
-  const userName = session?.user?.name;
-
   return (
     <div className="space-y-8">
 
       {/* グリーティング */}
       <div className="pt-4">
         <p className="text-2xl font-bold text-gray-800 dark:text-gray-100">
-          {userName ? `こんにちは、${userName}さん` : "こんにちは"}
+          こんにちは
         </p>
         <p className="text-sm text-gray-400 dark:text-gray-500 mt-1">
           今日も運営を楽にしよう
