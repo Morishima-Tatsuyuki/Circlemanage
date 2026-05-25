@@ -4,10 +4,11 @@ import Link from "next/link";
 import { Suspense, useState } from "react";
 
 const INNER_TABS = [
-  { id: "stay",       label: "宿泊大会管理" },
-  { id: "camp",       label: "合宿管理" },
-  { id: "accounting", label: "会計管理" },
+  { id: "roster",     label: "名簿" },
   { id: "schedule",   label: "スケジュール" },
+  { id: "accounting", label: "会計管理" },
+  { id: "camp",       label: "合宿管理" },
+  { id: "stay",       label: "宿泊大会管理" },
 ];
 
 const STAY_ITEMS = [
@@ -42,7 +43,7 @@ function ComingSoon({ label }: { label: string }) {
 }
 
 function TeamContent({ onBack }: { onBack: () => void }) {
-  const [activeTab, setActiveTab] = useState("stay");
+  const [activeTab, setActiveTab] = useState("roster");
 
   return (
     <div className="space-y-6">
@@ -103,9 +104,10 @@ function TeamContent({ onBack }: { onBack: () => void }) {
             ))}
           </div>
         )}
-        {activeTab === "camp"       && <ComingSoon label="合宿管理" />}
-        {activeTab === "accounting" && <ComingSoon label="会計管理" />}
+        {activeTab === "roster"     && <ComingSoon label="名簿" />}
         {activeTab === "schedule"   && <ComingSoon label="スケジュール" />}
+        {activeTab === "accounting" && <ComingSoon label="会計管理" />}
+        {activeTab === "camp"       && <ComingSoon label="合宿管理" />}
       </div>
     </div>
   );
