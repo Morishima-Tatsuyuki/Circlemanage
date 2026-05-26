@@ -25,6 +25,170 @@ const CAMP_FORM_URL_KEY = "camp_form_url";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
+// ── Google Form プレビューモーダル ────────────────────────────
+function FormPreviewModal({
+  dates,
+  onClose,
+}: {
+  dates: string[];
+  onClose: () => void;
+}) {
+  const dateLabels = dates.map(formatDateLabel);
+  const [participation, setParticipation] = useState<"全参加" | "途中参加or途中帰宅" | "">("");
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/50 overflow-y-auto py-8 px-4">
+      <div className="w-full max-w-lg">
+        {/* 閉じるボタン */}
+        <div className="flex justify-end mb-3">
+          <button
+            onClick={onClose}
+            className="text-white/80 hover:text-white text-sm flex items-center gap-1"
+          >
+            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+            閉じる
+          </button>
+        </div>
+
+        {/* フォームヘッダー */}
+        <div className="rounded-t-xl overflow-hidden">
+          <div className="bg-[#4338ca] h-2 rounded-t-xl" />
+          <div className="bg-white px-6 py-5 border-x border-b border-gray-200 rounded-b-none">
+            <h2 className="text-2xl font-normal text-gray-800 mb-1">合宿参加可否アンケート</h2>
+            <p className="text-sm text-red-500">* 必須</p>
+          </div>
+        </div>
+
+        {/* Q1: 名前 */}
+        <FormCard>
+          <QuestionLabel text="名前" required />
+          <input
+            type="text"
+            placeholder="回答を入力"
+            className="w-full border-b border-gray-400 focus:border-[#4338ca] outline-none pb-1 text-sm text-gray-700 bg-transparent"
+            readOnly
+          />
+        </FormCard>
+
+        {/* Q2: 参加 */}
+        <FormCard>
+          <QuestionLabel text="参加" required />
+          <div className="space-y-2 mt-1">
+            {(["全参加", "途中参加or途中帰宅"] as const).map(opt => (
+              <label key={opt} className="flex items-center gap-3 cursor-pointer">
+                <span className={`w-4 h-4 rounded-full border-2 flex-shrink-0 flex items-center justify-center ${
+                  participation === opt ? "border-[#4338ca]" : "border-gray-400"
+                }`}>
+                  {participation === opt && (
+                    <span className="w-2 h-2 rounded-full bg-[#4338ca]" />
+                  )}
+                </span>
+                <span
+                  className="text-sm text-gray-700"
+                  onClick={() => setParticipation(opt)}
+                >
+                  {opt}
+                </span>
+              </label>
+            ))}
+          </div>
+          {participation === "全参加" && (
+            <p className="mt-3 text-xs text-[#4338ca] bg-indigo-50 rounded px-3 py-2">
+              「全参加」を選択した場合、ここでフォームが送信されます
+            </p>
+          )}
+        </FormCard>
+
+        {/* セクション2: 詳細（途中参加のみ） */}
+        {participation === "途中参加or途中帰宅" && (
+          <>
+            <div className="bg-white border border-gray-200 rounded-lg px-6 py-4 mt-4">
+              <p className="text-base font-medium text-gray-700">詳細（途中参加・途中帰宅の方のみ）</p>
+              <p className="text-sm text-gray-400 mt-1">途中から参加または途中で帰宅する方は以下を入力してください</p>
+            </div>
+
+            {/* Q3: 参加日 */}
+            <FormCard>
+              <QuestionLabel text="参加日" />
+              <select className="mt-2 w-full border border-gray-300 rounded px-3 py-2 text-sm text-gray-700 focus:border-[#4338ca] focus:outline-none bg-white">
+                <option value="">選択してください</option>
+                {dateLabels.map(d => <option key={d}>{d}</option>)}
+              </select>
+            </FormCard>
+
+            {/* Q4: 参加日の飯 */}
+            <FormCard>
+              <QuestionLabel text="参加日の飯" />
+              <div className="space-y-2 mt-1">
+                {["朝飯から", "昼飯から", "夜飯から", "いらない"].map(opt => (
+                  <label key={opt} className="flex items-center gap-3 cursor-pointer">
+                    <span className="w-4 h-4 rounded border-2 border-gray-400 flex-shrink-0" />
+                    <span className="text-sm text-gray-700">{opt}</span>
+                  </label>
+                ))}
+              </div>
+            </FormCard>
+
+            {/* Q5: 帰宅日 */}
+            <FormCard>
+              <QuestionLabel text="帰宅日" />
+              <select className="mt-2 w-full border border-gray-300 rounded px-3 py-2 text-sm text-gray-700 focus:border-[#4338ca] focus:outline-none bg-white">
+                <option value="">選択してください</option>
+                {dateLabels.map(d => <option key={d}>{d}</option>)}
+              </select>
+            </FormCard>
+
+            {/* Q6: 帰宅日の飯 */}
+            <FormCard>
+              <QuestionLabel text="帰宅日の飯" />
+              <div className="space-y-2 mt-1">
+                {["朝飯まで", "昼飯まで", "夜飯まで", "いらない"].map(opt => (
+                  <label key={opt} className="flex items-center gap-3 cursor-pointer">
+                    <span className="w-4 h-4 rounded border-2 border-gray-400 flex-shrink-0" />
+                    <span className="text-sm text-gray-700">{opt}</span>
+                  </label>
+                ))}
+              </div>
+            </FormCard>
+          </>
+        )}
+
+        {/* 送信ボタン */}
+        <div className="bg-white border border-gray-200 rounded-lg px-6 py-4 mt-4 flex items-center justify-between">
+          <button
+            disabled
+            className="px-6 py-2 rounded bg-[#4338ca] text-white text-sm font-medium opacity-60 cursor-not-allowed"
+          >
+            送信
+          </button>
+          <p className="text-xs text-gray-400">これはプレビューです</p>
+        </div>
+
+        <div className="h-8" />
+      </div>
+    </div>
+  );
+}
+
+function FormCard({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="bg-white border border-gray-200 rounded-lg px-6 py-5 mt-4 space-y-1">
+      {children}
+    </div>
+  );
+}
+
+function QuestionLabel({ text, required }: { text: string; required?: boolean }) {
+  return (
+    <p className="text-sm text-gray-700 mb-2">
+      {text}
+      {required && <span className="text-red-500 ml-1">*</span>}
+    </p>
+  );
+}
+
 function getDatesInRange(start: string, end: string): string[] {
   const dates: string[] = [];
   const cur = new Date(start);
@@ -59,6 +223,7 @@ export default function CampApp() {
   const [creatingForm, setCreatingForm] = useState(false);
   const [formError, setFormError] = useState("");
   const [copied, setCopied] = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
 
   useEffect(() => {
     const p = localStorage.getItem(CAMP_PERIOD_KEY);
@@ -193,6 +358,9 @@ export default function CampApp() {
 
   return (
     <div className="space-y-6">
+      {showPreview && dates.length > 0 && (
+        <FormPreviewModal dates={dates} onClose={() => setShowPreview(false)} />
+      )}
       {/* セクション切替 */}
       <div className="flex gap-1 bg-gray-100 dark:bg-gray-800 rounded-xl p-1">
         {[
@@ -279,6 +447,18 @@ export default function CampApp() {
                 </ul>
               </div>
             )}
+
+            {/* プレビューボタン */}
+            <button
+              onClick={() => setShowPreview(true)}
+              className="w-full flex items-center justify-center gap-2 py-2 rounded-lg border border-gray-200 dark:border-gray-600 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
+            >
+              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                <circle cx="12" cy="12" r="3"/>
+              </svg>
+              フォームのプレビューを見る
+            </button>
 
             {/* ログイン状態に応じたUI */}
             {!session?.access_token ? (
