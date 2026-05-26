@@ -187,6 +187,11 @@ class SheetConfig(BaseModel):
     access_token: str
     spreadsheet_id: str
 
+class CampFormConfig(BaseModel):
+    access_token: str
+    camp_dates: List[str]
+    event_name: str = "合宿参加可否アンケート"
+
 class CostMember(BaseModel):
     name: str
     can_drive: bool
@@ -852,6 +857,171 @@ async def create_form(config: FormConfig):
         "form_url": f"https://docs.google.com/forms/d/{form_id}/viewform",
         "edit_url": f"https://docs.google.com/forms/d/{form_id}/edit",
         "sheet_url": f"https://docs.google.com/forms/d/{form_id}/edit#responses",
+    }
+
+
+# ==========================================
+# Google Forms API - 合宿参加可否フォーム自動作成
+# ==========================================
+@app.post("/create-camp-form")
+async def create_camp_form(config: CampFormConfig):
+    import requests as req
+
+    headers = {
+        "Authorization": f"Bearer {config.access_token}",
+        "Content-Type": "application/json"
+    }
+
+    res = req.post(
+        "https://forms.googleapis.com/v1/forms",
+        headers=headers,
+        json={"info": {"title": config.event_name, "documentTitle": config.event_name}}
+    )
+    if res.status_code != 200:
+        return {"error": f"フォーム作成に失敗しました: {res.text}"}
+
+    form_id = res.json()["formId"]
+
+    date_labels = []
+    for d in config.camp_dates:
+        try:
+            dt = datetime.strptime(d, "%Y-%m-%d")
+            date_labels.append(f"{dt.month}/{dt.day}")
+        except Exception:
+            date_labels.append(d)
+
+    batch_body = {"requests": [
+        {
+            "createItem": {
+                "item": {
+                    "title": "名前",
+                    "questionItem": {"question": {"required": True, "textQuestion": {}}}
+                },
+                "location": {"index": 0}
+            }
+        },
+        {
+            "createItem": {
+                "item": {
+                    "title": "参加",
+                    "questionItem": {
+                        "question": {
+                            "required": True,
+                            "choiceQuestion": {
+                                "type": "RADIO",
+                                "options": [
+                                    {"value": "全参加", "goToAction": "SUBMIT_FORM"},
+                                    {"value": "途中参加or途中帰宅"}
+                                ]
+                            }
+                        }
+                    }
+                },
+                "location": {"index": 1}
+            }
+        },
+        {
+            "createItem": {
+                "item": {
+                    "title": "詳細（途中参加・途中帰宅の方のみ）",
+                    "description": "途中から参加または途中で帰宅する方は以下を入力してください",
+                    "pageBreakItem": {}
+                },
+                "location": {"index": 2}
+            }
+        },
+        {
+            "createItem": {
+                "item": {
+                    "title": "参加日",
+                    "questionItem": {
+                        "question": {
+                            "required": False,
+                            "choiceQuestion": {
+                                "type": "DROP_DOWN",
+                                "options": [{"value": d} for d in date_labels]
+                            }
+                        }
+                    }
+                },
+                "location": {"index": 3}
+            }
+        },
+        {
+            "createItem": {
+                "item": {
+                    "title": "参加日の飯",
+                    "questionItem": {
+                        "question": {
+                            "required": False,
+                            "choiceQuestion": {
+                                "type": "CHECKBOX",
+                                "options": [
+                                    {"value": "朝飯から"},
+                                    {"value": "昼飯から"},
+                                    {"value": "夜飯から"},
+                                    {"value": "いらない"}
+                                ]
+                            }
+                        }
+                    }
+                },
+                "location": {"index": 4}
+            }
+        },
+        {
+            "createItem": {
+                "item": {
+                    "title": "帰宅日",
+                    "questionItem": {
+                        "question": {
+                            "required": False,
+                            "choiceQuestion": {
+                                "type": "DROP_DOWN",
+                                "options": [{"value": d} for d in date_labels]
+                            }
+                        }
+                    }
+                },
+                "location": {"index": 5}
+            }
+        },
+        {
+            "createItem": {
+                "item": {
+                    "title": "帰宅日の飯",
+                    "questionItem": {
+                        "question": {
+                            "required": False,
+                            "choiceQuestion": {
+                                "type": "CHECKBOX",
+                                "options": [
+                                    {"value": "朝飯まで"},
+                                    {"value": "昼飯まで"},
+                                    {"value": "夜飯まで"},
+                                    {"value": "いらない"}
+                                ]
+                            }
+                        }
+                    }
+                },
+                "location": {"index": 6}
+            }
+        }
+    ]}
+
+    batch_res = req.post(
+        f"https://forms.googleapis.com/v1/forms/{form_id}:batchUpdate",
+        headers=headers,
+        json=batch_body
+    )
+    if batch_res.status_code != 200:
+        return {"error": f"質問の追加に失敗しました: {batch_res.text}"}
+
+    return {
+        "form_id": form_id,
+        "form_url": f"https://docs.google.com/forms/d/{form_id}/viewform",
+        "edit_url": f"https://docs.google.com/forms/d/{form_id}/edit"
     }
 
 
