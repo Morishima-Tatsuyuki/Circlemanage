@@ -432,22 +432,6 @@ export default function CampApp() {
               </p>
             </div>
 
-            {/* フォーム内容プレビュー */}
-            {isValidPeriod && (
-              <div className="bg-gray-50 dark:bg-gray-700/50 rounded-xl p-4 space-y-2 text-xs text-gray-500 dark:text-gray-400">
-                <p className="font-medium text-gray-600 dark:text-gray-300">作成されるフォームの内容</p>
-                <ul className="space-y-1 ml-2">
-                  <li>・名前（テキスト）</li>
-                  <li>・参加：全参加 / 途中参加or途中帰宅</li>
-                  <li className="ml-3 text-gray-400 dark:text-gray-500">↓ 途中参加の方のみ</li>
-                  <li className="ml-3">・参加日（{dates.map(formatDateLabel).join(" / ")}）</li>
-                  <li className="ml-3">・参加日の飯：朝飯から / 昼飯から / 夜飯から / いらない</li>
-                  <li className="ml-3">・帰宅日（{dates.map(formatDateLabel).join(" / ")}）</li>
-                  <li className="ml-3">・帰宅日の飯：朝飯まで / 昼飯まで / 夜飯まで / いらない</li>
-                </ul>
-              </div>
-            )}
-
             {/* プレビューボタン */}
             <button
               onClick={() => setShowPreview(true)}
