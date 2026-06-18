@@ -115,7 +115,7 @@ function TeamContent({ onBack, initialTab }: { onBack: () => void; initialTab: s
           </div>
         )}
         {activeTab === "roster"     && <RosterApp />}
-        {activeTab === "schedule"   && <ComingSoon label="スケジュール" />}
+        {activeTab === "schedule"   && <MemberCalendarApp />}
         {activeTab === "accounting" && <ComingSoon label="会計管理" />}
         {activeTab === "camp"       && <CampApp />}
       </div>
