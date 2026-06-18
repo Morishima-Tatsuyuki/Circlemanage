@@ -5,6 +5,7 @@ import { Suspense, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import RosterApp from "@/components/roster/RosterApp";
 import CampApp from "@/components/camp/CampApp";
+import MemberCalendarApp from "@/components/member/MemberCalendarApp";
 
 const INNER_TABS = [
   { id: "roster",     label: "名簿" },
@@ -163,7 +164,7 @@ function HomeContent() {
           </svg>
           選択に戻る
         </button>
-        <ComingSoon label="メンバー" />
+        <MemberCalendarApp />
       </div>
     );
   }
