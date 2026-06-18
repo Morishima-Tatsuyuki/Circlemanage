@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useMemberCalendarStore, EVENT_COLORS } from "./useMemberCalendarStore";
+import { usePersonalCalendarStore } from "./usePersonalCalendarStore";
 
 function todayStr() { return new Date().toISOString().slice(0, 10); }
 function ymd(y: number, m: number, d: number) {
@@ -42,8 +43,9 @@ function ConfirmDialog({ onConfirm, onCancel }: { onConfirm: () => void; onCance
   );
 }
 
-export default function MemberCalendarApp() {
-  const { addEvent, deleteEvent, eventsForDate } = useMemberCalendarStore();
+export default function PersonalCalendarApp() {
+  const { eventsForDate: teamEventsForDate } = useMemberCalendarStore();
+  const { addEvent, deleteEvent, eventsForDate: personalEventsForDate } = usePersonalCalendarStore();
 
   const today = todayStr();
   const [viewYear, setViewYear]   = useState(new Date().getFullYear());
@@ -78,7 +80,8 @@ export default function MemberCalendarApp() {
     setForm((f) => ({ ...f, title: "", time: "", note: "" }));
   };
 
-  const selectedEntries = selectedDate ? eventsForDate(selectedDate) : [];
+  const selectedTeamEntries    = selectedDate ? teamEventsForDate(selectedDate) : [];
+  const selectedPersonalEntries = selectedDate ? personalEventsForDate(selectedDate) : [];
 
   return (
     <>
@@ -91,41 +94,28 @@ export default function MemberCalendarApp() {
 
       <div className="space-y-4">
         <div>
-          <h1 className="text-xl font-semibold text-gray-800 dark:text-gray-100">スケジュール</h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">チームの予定を管理します</p>
+          <h1 className="text-xl font-semibold text-gray-800 dark:text-gray-100">マイカレンダー</h1>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">チームの予定を確認・個人の予定を追加できます</p>
         </div>
 
         {/* 月カレンダー */}
         <div className="bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 rounded-xl overflow-hidden">
           <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100 dark:border-gray-700">
-            <button
-              onClick={prevMonth}
+            <button onClick={prevMonth}
               className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400 transition-colors text-lg"
             >‹</button>
-            <p className="text-sm font-semibold text-gray-800 dark:text-gray-100">
-              {viewYear}年 {viewMonth}月
-            </p>
-            <button
-              onClick={nextMonth}
+            <p className="text-sm font-semibold text-gray-800 dark:text-gray-100">{viewYear}年 {viewMonth}月</p>
+            <button onClick={nextMonth}
               className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400 transition-colors text-lg"
             >›</button>
           </div>
 
-          {/* 曜日ヘッダー */}
           <div className="grid grid-cols-7 border-b border-gray-100 dark:border-gray-700">
             {WEEKDAYS.map((d, i) => (
-              <div
-                key={d}
-                className={`py-2 text-center text-xs font-medium ${
-                  i === 0 ? "text-red-400" : i === 6 ? "text-blue-400" : "text-gray-400 dark:text-gray-500"
-                }`}
-              >
-                {d}
-              </div>
+              <div key={d} className={`py-2 text-center text-xs font-medium ${i === 0 ? "text-red-400" : i === 6 ? "text-blue-400" : "text-gray-400 dark:text-gray-500"}`}>{d}</div>
             ))}
           </div>
 
-          {/* 日付グリッド */}
           <div className="grid grid-cols-7">
             {Array.from({ length: totalCells }).map((_, idx) => {
               const day = idx - firstDow + 1;
@@ -134,58 +124,36 @@ export default function MemberCalendarApp() {
               const isToday = dateStr === today;
               const isSelected = dateStr === selectedDate;
               const dow = idx % 7;
-              const dayEntries = isValid ? eventsForDate(dateStr) : [];
+              const teamEntries     = isValid ? teamEventsForDate(dateStr) : [];
+              const personalEntries = isValid ? personalEventsForDate(dateStr) : [];
+              const allEntries = [
+                ...teamEntries.map((e) => ({ ...e, isTeam: true  })),
+                ...personalEntries.map((e) => ({ ...e, isTeam: false })),
+              ];
               return (
-                <div
-                  key={idx}
+                <div key={idx}
                   onClick={() => isValid && setSelectedDate(isSelected ? null : dateStr)}
-                  className={`min-h-[64px] p-1 border-b border-r border-gray-50 dark:border-gray-700/50 transition-colors ${
-                    isValid ? "cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/40" : ""
-                  } ${isSelected ? "bg-blue-50 dark:bg-blue-900/20" : ""}`}
+                  className={`min-h-[64px] p-1 border-b border-r border-gray-50 dark:border-gray-700/50 transition-colors ${isValid ? "cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/40" : ""} ${isSelected ? "bg-blue-50 dark:bg-blue-900/20" : ""}`}
                 >
                   {isValid && (
                     <>
                       <div className="flex justify-end mb-1">
-                        <span
-                          className={`w-6 h-6 flex items-center justify-center text-xs rounded-full font-medium ${
-                            isToday
-                              ? "bg-blue-600 text-white"
-                              : dow === 0
-                              ? "text-red-400"
-                              : dow === 6
-                              ? "text-blue-400"
-                              : "text-gray-700 dark:text-gray-200"
-                          }`}
-                        >
+                        <span className={`w-6 h-6 flex items-center justify-center text-xs rounded-full font-medium ${isToday ? "bg-blue-600 text-white" : dow === 0 ? "text-red-400" : dow === 6 ? "text-blue-400" : "text-gray-700 dark:text-gray-200"}`}>
                           {day}
                         </span>
                       </div>
                       <div className="space-y-0.5">
-                        {dayEntries.slice(0, 2).map((e) => (
-                          <div
-                            key={e.id}
-                            className="flex items-center gap-1 px-1 py-0.5 rounded truncate"
-                            style={{ backgroundColor: e.colorHex + "22" }}
-                          >
-                            <span
-                              className="w-1.5 h-1.5 rounded-full flex-shrink-0"
-                              style={{ backgroundColor: e.colorHex }}
-                            />
-                            <span
-                              className="truncate text-gray-700 dark:text-gray-200"
-                              style={{ fontSize: "10px" }}
-                            >
-                              {e.title}
+                        {allEntries.slice(0, 2).map((e) => (
+                          <div key={e.id} className="flex items-center gap-0.5 px-1 py-0.5 rounded truncate"
+                            style={{ backgroundColor: e.colorHex + "22" }}>
+                            <span className="flex-shrink-0 text-gray-500 dark:text-gray-400" style={{ fontSize: "8px" }}>
+                              {e.isTeam ? "★" : "●"}
                             </span>
+                            <span className="truncate text-gray-700 dark:text-gray-200" style={{ fontSize: "10px" }}>{e.title}</span>
                           </div>
                         ))}
-                        {dayEntries.length > 2 && (
-                          <p
-                            className="text-gray-400 dark:text-gray-500"
-                            style={{ fontSize: "10px", paddingLeft: "4px" }}
-                          >
-                            +{dayEntries.length - 2}
-                          </p>
+                        {allEntries.length > 2 && (
+                          <p className="text-gray-400 dark:text-gray-500" style={{ fontSize: "10px", paddingLeft: "4px" }}>+{allEntries.length - 2}</p>
                         )}
                       </div>
                     </>
@@ -193,6 +161,16 @@ export default function MemberCalendarApp() {
                 </div>
               );
             })}
+          </div>
+        </div>
+
+        {/* 凡例 */}
+        <div className="flex items-center gap-4 px-1">
+          <div className="flex items-center gap-1 text-xs text-gray-400 dark:text-gray-500">
+            <span style={{ fontSize: "10px" }}>★</span> チームの予定
+          </div>
+          <div className="flex items-center gap-1 text-xs text-gray-400 dark:text-gray-500">
+            <span style={{ fontSize: "10px" }}>●</span> マイ予定
           </div>
         </div>
 
@@ -206,43 +184,52 @@ export default function MemberCalendarApp() {
                   {WEEKDAYS[parseDow(selectedDate)]}曜日
                 </span>
               </p>
-              <button
-                onClick={() => setSelectedDate(null)}
-                className="text-gray-300 dark:text-gray-600 hover:text-gray-500 text-lg leading-none"
-              >×</button>
+              <button onClick={() => setSelectedDate(null)} className="text-gray-300 dark:text-gray-600 hover:text-gray-500 text-lg leading-none">×</button>
             </div>
 
-            {/* イベント一覧 */}
-            {selectedEntries.length > 0 && (
+            {/* チームの予定（読み取り専用） */}
+            {selectedTeamEntries.length > 0 && (
               <div className="space-y-2">
-                {selectedEntries.map((e) => (
-                  <div
-                    key={e.id}
-                    className="rounded-lg px-3 py-2.5 group"
-                    style={{ backgroundColor: e.colorHex + "15" }}
-                  >
+                <p className="text-xs font-medium text-gray-400 dark:text-gray-500 flex items-center gap-1">
+                  <span>👑</span> チームの予定
+                </p>
+                {selectedTeamEntries.map((e) => (
+                  <div key={e.id} className="rounded-lg px-3 py-2.5"
+                    style={{ backgroundColor: e.colorHex + "15" }}>
                     <div className="flex items-start gap-2">
-                      <span
-                        className="w-2 h-2 rounded-full flex-shrink-0 mt-1"
-                        style={{ backgroundColor: e.colorHex }}
-                      />
+                      <span className="w-2 h-2 rounded-full flex-shrink-0 mt-1" style={{ backgroundColor: e.colorHex }} />
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
-                          <span className="text-sm font-medium text-gray-800 dark:text-gray-100 truncate">
-                            {e.title}
-                          </span>
-                          {e.time && (
-                            <span className="text-xs text-gray-400 dark:text-gray-500 flex-shrink-0 font-mono">
-                              {e.time}
-                            </span>
-                          )}
+                          <span className="text-sm font-medium text-gray-800 dark:text-gray-100 truncate">{e.title}</span>
+                          {e.time && <span className="text-xs text-gray-400 dark:text-gray-500 flex-shrink-0 font-mono">{e.time}</span>}
                         </div>
-                        {e.note && (
-                          <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{e.note}</p>
-                        )}
+                        {e.note && <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{e.note}</p>}
                       </div>
-                      <button
-                        onClick={() => setPendingDeleteId(e.id)}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* マイ予定（削除可能） */}
+            {selectedPersonalEntries.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-xs font-medium text-gray-400 dark:text-gray-500 flex items-center gap-1">
+                  <span>👤</span> マイ予定
+                </p>
+                {selectedPersonalEntries.map((e) => (
+                  <div key={e.id} className="rounded-lg px-3 py-2.5 group"
+                    style={{ backgroundColor: e.colorHex + "15" }}>
+                    <div className="flex items-start gap-2">
+                      <span className="w-2 h-2 rounded-full flex-shrink-0 mt-1" style={{ backgroundColor: e.colorHex }} />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-sm font-medium text-gray-800 dark:text-gray-100 truncate">{e.title}</span>
+                          {e.time && <span className="text-xs text-gray-400 dark:text-gray-500 flex-shrink-0 font-mono">{e.time}</span>}
+                        </div>
+                        {e.note && <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{e.note}</p>}
+                      </div>
+                      <button onClick={() => setPendingDeleteId(e.id)}
                         className="w-7 h-7 flex items-center justify-center rounded-lg text-gray-300 dark:text-gray-600 hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 opacity-0 group-hover:opacity-100 transition-all text-base flex-shrink-0"
                       >×</button>
                     </div>
@@ -251,9 +238,9 @@ export default function MemberCalendarApp() {
               </div>
             )}
 
-            {/* 追加フォーム */}
-            <div className="space-y-3">
-              <p className="text-xs font-medium text-gray-500 dark:text-gray-400">予定を追加</p>
+            {/* 追加フォーム（マイ予定のみ） */}
+            <div className="space-y-3 pt-1 border-t border-gray-100 dark:border-gray-700">
+              <p className="text-xs font-medium text-gray-500 dark:text-gray-400">マイ予定を追加</p>
               <input
                 type="text"
                 placeholder="タイトル（必須）"
@@ -277,11 +264,7 @@ export default function MemberCalendarApp() {
                       type="button"
                       onClick={() => setForm((f) => ({ ...f, colorHex: c.hex }))}
                       title={c.name}
-                      className={`w-6 h-6 rounded-full transition-transform ${
-                        form.colorHex === c.hex
-                          ? "scale-125 ring-2 ring-offset-1 ring-gray-400 dark:ring-gray-500"
-                          : "hover:scale-110"
-                      }`}
+                      className={`w-6 h-6 rounded-full transition-transform ${form.colorHex === c.hex ? "scale-125 ring-2 ring-offset-1 ring-gray-400 dark:ring-gray-500" : "hover:scale-110"}`}
                       style={{ backgroundColor: c.hex }}
                     />
                   ))}
@@ -307,7 +290,7 @@ export default function MemberCalendarApp() {
 
         {!selectedDate && (
           <p className="text-center text-xs text-gray-400 dark:text-gray-500">
-            日付をタップして予定を追加できます
+            日付をタップして予定を確認・追加できます
           </p>
         )}
       </div>

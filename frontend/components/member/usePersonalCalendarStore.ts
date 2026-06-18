@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import type { MemberEvent } from "./useMemberCalendarStore";
 
 function useLocalStorage<T>(key: string, initial: T) {
   const [value, setValue] = useState<T>(initial);
@@ -23,27 +24,9 @@ function useLocalStorage<T>(key: string, initial: T) {
   return [value, set] as const;
 }
 
-export interface MemberEvent {
-  id: string;
-  date: string; // YYYY-MM-DD
-  title: string;
-  time: string;  // "" or "HH:MM~HH:MM"
-  note: string;
-  colorHex: string;
-}
-
-export const EVENT_COLORS = [
-  { hex: "#3B82F6", name: "ブルー" },
-  { hex: "#22C55E", name: "グリーン" },
-  { hex: "#EF4444", name: "レッド" },
-  { hex: "#F97316", name: "オレンジ" },
-  { hex: "#A855F7", name: "パープル" },
-  { hex: "#EAB308", name: "イエロー" },
-];
-
-export function useMemberCalendarStore() {
+export function usePersonalCalendarStore() {
   const [events, setEvents] = useLocalStorage<MemberEvent[]>(
-    "team_calendar_events",
+    "personal_calendar_events",
     []
   );
 

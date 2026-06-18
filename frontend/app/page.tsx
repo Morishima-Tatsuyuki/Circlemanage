@@ -6,6 +6,7 @@ import { useSearchParams, useRouter } from "next/navigation";
 import RosterApp from "@/components/roster/RosterApp";
 import CampApp from "@/components/camp/CampApp";
 import MemberCalendarApp from "@/components/member/MemberCalendarApp";
+import PersonalCalendarApp from "@/components/member/PersonalCalendarApp";
 
 const INNER_TABS = [
   { id: "roster",     label: "名簿" },
@@ -164,7 +165,7 @@ function HomeContent() {
           </svg>
           選択に戻る
         </button>
-        <MemberCalendarApp />
+        <PersonalCalendarApp />
       </div>
     );
   }
