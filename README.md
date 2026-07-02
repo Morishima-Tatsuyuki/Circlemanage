@@ -5,7 +5,7 @@
 
 👉 **本番アプリ URL**: https://practice.circlemanage.jp （Raspberry Pi 上の本番環境）  
 📱 スマホのホーム画面にも追加可能（PWA 対応）
-
+仮環境表示：https://circlemanage-git-test-mrsmtatsuyuki-1865s-projects.vercel.app/
 ---
 
 ## `test` ブランチ（検証環境）について
