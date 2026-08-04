@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef, type PointerEvent as ReactPointerEvent } from "react";
 import { useSession, signIn } from "next-auth/react";
 
 type Member = {
@@ -381,21 +381,103 @@ export default function CampApp() {
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const toggleMeal = useCallback((name: string, date: string, meal: Meal) => {
+  const setMealValue = useCallback((name: string, date: string, meal: Meal, value: boolean) => {
     setAttendance(prev => {
       const prevMember = prev[name] ?? {};
       const prevDate = prevMember[date] ?? { 朝: false, 昼: false, 夜: false };
+      if (prevDate[meal] === value) return prev;
       const next: Attendance = {
         ...prev,
         [name]: {
           ...prevMember,
-          [date]: { ...prevDate, [meal]: !prevDate[meal] },
+          [date]: { ...prevDate, [meal]: value },
         },
       };
       localStorage.setItem(CAMP_ATTENDANCE_KEY, JSON.stringify(next));
       return next;
     });
   }, []);
+
+  // 出欠グリッドのドラッグ選択（1マス目の値を、なぞった範囲すべてに適用する）
+  const paintValueRef = useRef<boolean | null>(null);
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingTapRef = useRef<{ name: string; date: string; meal: Meal; value: boolean } | null>(null);
+  const touchStartPosRef = useRef<{ x: number; y: number } | null>(null);
+
+  const readCellFromElement = useCallback((el: Element | null) => {
+    const cell = el?.closest<HTMLElement>("[data-cell='true']");
+    if (!cell) return null;
+    const { name, date, meal } = cell.dataset;
+    if (!name || !date || !meal) return null;
+    return { name, date, meal: meal as Meal };
+  }, []);
+
+  const clearLongPressTimer = useCallback(() => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  }, []);
+
+  const handleGridPointerDown = useCallback((e: ReactPointerEvent<HTMLTableSectionElement>) => {
+    const cell = readCellFromElement(e.target as Element);
+    if (!cell) return;
+    const current = !!attendance[cell.name]?.[cell.date]?.[cell.meal];
+    const value = !current;
+
+    if (e.pointerType === "touch") {
+      // タッチはタップ(単発切替)と長押し+スライド(範囲塗り)を区別する
+      touchStartPosRef.current = { x: e.clientX, y: e.clientY };
+      pendingTapRef.current = { ...cell, value };
+      longPressTimerRef.current = setTimeout(() => {
+        paintValueRef.current = value;
+        pendingTapRef.current = null;
+        setMealValue(cell.name, cell.date, cell.meal, value);
+        if (typeof navigator.vibrate === "function") navigator.vibrate(10);
+      }, 350);
+    } else {
+      // マウスは即座にドラッグ選択を開始
+      paintValueRef.current = value;
+      setMealValue(cell.name, cell.date, cell.meal, value);
+    }
+  }, [attendance, readCellFromElement, setMealValue]);
+
+  const handleGridPointerMove = useCallback((e: ReactPointerEvent<HTMLTableSectionElement>) => {
+    if (longPressTimerRef.current && touchStartPosRef.current) {
+      const dx = e.clientX - touchStartPosRef.current.x;
+      const dy = e.clientY - touchStartPosRef.current.y;
+      if (Math.hypot(dx, dy) > 10) {
+        // 長押し確定前に動いた＝スクロール意図とみなしキャンセル
+        clearLongPressTimer();
+        pendingTapRef.current = null;
+        touchStartPosRef.current = null;
+      }
+    }
+    if (paintValueRef.current === null) return;
+    e.preventDefault();
+    const cell = readCellFromElement(document.elementFromPoint(e.clientX, e.clientY));
+    if (cell) setMealValue(cell.name, cell.date, cell.meal, paintValueRef.current);
+  }, [clearLongPressTimer, readCellFromElement, setMealValue]);
+
+  const handleGridPointerUp = useCallback(() => {
+    if (pendingTapRef.current) {
+      // 長押しが確定する前に指を離した＝通常のタップとして1マスだけ切替
+      const { name, date, meal, value } = pendingTapRef.current;
+      setMealValue(name, date, meal, value);
+    }
+    clearLongPressTimer();
+    pendingTapRef.current = null;
+    touchStartPosRef.current = null;
+    paintValueRef.current = null;
+  }, [clearLongPressTimer, setMealValue]);
+
+  const handleGridPointerCancel = useCallback(() => {
+    // ジェスチャーの中断（システムの割り込み等）ではタップ扱いにしない
+    clearLongPressTimer();
+    pendingTapRef.current = null;
+    touchStartPosRef.current = null;
+    paintValueRef.current = null;
+  }, [clearLongPressTimer]);
 
   const toggleAllMeal = useCallback((date: string, meal: Meal, value: boolean) => {
     setAttendance(prev => {
@@ -772,7 +854,14 @@ export default function CampApp() {
                       ))}
                     </tr>
                   </thead>
-                  <tbody className="bg-white dark:bg-gray-800">
+                  <tbody
+                    className="bg-white dark:bg-gray-800 touch-none select-none"
+                    onPointerDown={handleGridPointerDown}
+                    onPointerMove={handleGridPointerMove}
+                    onPointerUp={handleGridPointerUp}
+                    onPointerCancel={handleGridPointerCancel}
+                    onPointerLeave={handleGridPointerCancel}
+                  >
                     {members.map((m, i) => (
                       <tr
                         key={i}
@@ -784,7 +873,12 @@ export default function CampApp() {
                           MEALS.map(meal => (
                             <td key={`${d}-${meal}`} className="px-1 py-2 text-center border-l border-gray-50 dark:border-gray-700/50">
                               <button
-                                onClick={() => toggleMeal(m.name, d, meal)}
+                                type="button"
+                                data-cell="true"
+                                data-name={m.name}
+                                data-date={d}
+                                data-meal={meal}
+                                onDragStart={(e) => e.preventDefault()}
                                 className={`w-7 h-7 rounded-lg text-xs font-medium transition-all ${
                                   attendance[m.name]?.[d]?.[meal]
                                     ? "bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 hover:bg-blue-200 dark:hover:bg-blue-800/60"
