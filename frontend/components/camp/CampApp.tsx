@@ -1,8 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useSession, signIn } from "next-auth/react";
-import * as XLSX from "xlsx";
 
 type Member = {
   grade: string;
@@ -16,14 +15,49 @@ type Period = {
   end: string;
 };
 
-type Attendance = Record<string, Record<string, boolean>>;
+const MEALS = ["朝", "昼", "夜"] as const;
+type Meal = (typeof MEALS)[number];
+
+// 氏名 -> 日付 -> 食事 -> 参加有無
+type Attendance = Record<string, Record<string, Record<Meal, boolean>>>;
+
+type CostItem = { label: string; amount: number };
+
+type CostSettings = {
+  lodgingFee: number;
+  items: CostItem[];
+};
+
+const DEFAULT_COST_SETTINGS: CostSettings = {
+  lodgingFee: 8400,
+  items: [
+    { label: "宴会費", amount: 0 },
+    { label: "保険料", amount: 0 },
+    { label: "バス代", amount: 0 },
+    { label: "施設利用料", amount: 0 },
+    { label: "備品費", amount: 0 },
+  ],
+};
 
 const ROSTER_KEY = "roster_members";
 const CAMP_PERIOD_KEY = "camp_period";
 const CAMP_ATTENDANCE_KEY = "camp_attendance";
 const CAMP_FORM_URL_KEY = "camp_form_url";
+const CAMP_COST_KEY = "camp_cost_settings";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
+// 旧形式(日単位のbooleanのみ)のデータが残っていた場合は破棄して作り直す
+function isValidAttendanceShape(a: unknown): a is Attendance {
+  if (!a || typeof a !== "object") return false;
+  for (const byDate of Object.values(a as Record<string, unknown>)) {
+    if (!byDate || typeof byDate !== "object") return false;
+    for (const byMeal of Object.values(byDate as Record<string, unknown>)) {
+      if (!byMeal || typeof byMeal !== "object") return false;
+    }
+  }
+  return true;
+}
 
 // ── Google Form プレビューモーダル ────────────────────────────
 function FormPreviewModal({
@@ -224,13 +258,21 @@ export default function CampApp() {
   const [formError, setFormError] = useState("");
   const [copied, setCopied] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
+  const [costSettings, setCostSettings] = useState<CostSettings>(DEFAULT_COST_SETTINGS);
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState("");
 
   useEffect(() => {
     const p = localStorage.getItem(CAMP_PERIOD_KEY);
     if (p) setPeriod(JSON.parse(p));
 
     const a = localStorage.getItem(CAMP_ATTENDANCE_KEY);
-    if (a) setAttendance(JSON.parse(a));
+    if (a) {
+      try {
+        const parsed = JSON.parse(a);
+        if (isValidAttendanceShape(parsed)) setAttendance(parsed);
+      } catch {}
+    }
 
     const r = localStorage.getItem(ROSTER_KEY);
     if (r) {
@@ -239,7 +281,40 @@ export default function CampApp() {
 
     const f = localStorage.getItem(CAMP_FORM_URL_KEY);
     if (f) setFormUrl(f);
+
+    const c = localStorage.getItem(CAMP_COST_KEY);
+    if (c) {
+      try { setCostSettings(JSON.parse(c)); } catch {}
+    }
   }, []);
+
+  const dates = useMemo(
+    () => (period.start && period.end ? getDatesInRange(period.start, period.end) : []),
+    [period.start, period.end]
+  );
+  const isValidPeriod = period.start && period.end && period.start <= period.end;
+
+  const saveCostSettings = useCallback((next: CostSettings) => {
+    setCostSettings(next);
+    localStorage.setItem(CAMP_COST_KEY, JSON.stringify(next));
+  }, []);
+
+  const updateLodgingFee = (value: number) => {
+    saveCostSettings({ ...costSettings, lodgingFee: value });
+  };
+
+  const updateCostItem = (index: number, patch: Partial<CostItem>) => {
+    const items = costSettings.items.map((it, i) => (i === index ? { ...it, ...patch } : it));
+    saveCostSettings({ ...costSettings, items });
+  };
+
+  const addCostItem = () => {
+    saveCostSettings({ ...costSettings, items: [...costSettings.items, { label: "", amount: 0 }] });
+  };
+
+  const removeCostItem = (index: number) => {
+    saveCostSettings({ ...costSettings, items: costSettings.items.filter((_, i) => i !== index) });
+  };
 
   const savePeriod = () => {
     if (!period.start || !period.end || period.start > period.end) return;
@@ -255,7 +330,12 @@ export default function CampApp() {
       for (const m of members_) {
         next[m.name] = {};
         for (const d of dates) {
-          next[m.name][d] = prev[m.name]?.[d] ?? true;
+          const prevMeal = prev[m.name]?.[d];
+          next[m.name][d] = {
+            朝: prevMeal?.朝 ?? true,
+            昼: prevMeal?.昼 ?? true,
+            夜: prevMeal?.夜 ?? true,
+          };
         }
       }
       localStorage.setItem(CAMP_ATTENDANCE_KEY, JSON.stringify(next));
@@ -301,60 +381,68 @@ export default function CampApp() {
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const toggleDay = useCallback((name: string, date: string) => {
+  const toggleMeal = useCallback((name: string, date: string, meal: Meal) => {
     setAttendance(prev => {
-      const next = {
+      const prevMember = prev[name] ?? {};
+      const prevDate = prevMember[date] ?? { 朝: false, 昼: false, 夜: false };
+      const next: Attendance = {
         ...prev,
-        [name]: { ...prev[name], [date]: !prev[name]?.[date] },
+        [name]: {
+          ...prevMember,
+          [date]: { ...prevDate, [meal]: !prevDate[meal] },
+        },
       };
       localStorage.setItem(CAMP_ATTENDANCE_KEY, JSON.stringify(next));
       return next;
     });
   }, []);
 
-  const toggleAllOnDate = useCallback((date: string, value: boolean) => {
+  const toggleAllMeal = useCallback((date: string, meal: Meal, value: boolean) => {
     setAttendance(prev => {
-      const next = { ...prev };
+      const next: Attendance = { ...prev };
       for (const name of Object.keys(next)) {
-        next[name] = { ...next[name], [date]: value };
+        const prevDate = next[name][date] ?? { 朝: false, 昼: false, 夜: false };
+        next[name] = { ...next[name], [date]: { ...prevDate, [meal]: value } };
       }
       localStorage.setItem(CAMP_ATTENDANCE_KEY, JSON.stringify(next));
       return next;
     });
   }, []);
 
-  const exportExcel = () => {
+  const nightsCount = useCallback((name: string) => {
+    return dates.reduce((acc, d) => acc + (attendance[name]?.[d]?.夜 ? 1 : 0), 0);
+  }, [attendance, dates]);
+
+  const exportExcel = async () => {
     if (!period.start || !period.end) return;
-    const dates = getDatesInRange(period.start, period.end);
-    const labels = dates.map(formatDateLabel);
-
-    const rows = members.map(m => {
-      const row: Record<string, string> = {
-        学年: m.grade,
-        名前: m.name,
-      };
-      dates.forEach((d, i) => {
-        row[labels[i]] = attendance[m.name]?.[d] ? "○" : "";
+    setExporting(true);
+    setExportError("");
+    try {
+      const res = await fetch(`${API_BASE}/export-camp-roster`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          members: members.map(m => ({ grade: m.grade, name: m.name })),
+          dates,
+          attendance,
+          lodging_fee: costSettings.lodgingFee,
+          cost_items: costSettings.items,
+        }),
       });
-      return row;
-    });
-
-    const ws = XLSX.utils.json_to_sheet(rows, {
-      header: ["学年", "名前", ...labels],
-    });
-    ws["!cols"] = [
-      { wch: 6 },
-      { wch: 10 },
-      ...labels.map(() => ({ wch: 7 })),
-    ];
-
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "合宿名簿");
-    XLSX.writeFile(wb, "合宿名簿.xlsx");
+      if (!res.ok) throw new Error(await res.text());
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "合宿参加者名簿.xlsx";
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      setExportError("Excel出力に失敗しました。バックエンドの起動状況を確認してください。");
+    } finally {
+      setExporting(false);
+    }
   };
-
-  const dates = period.start && period.end ? getDatesInRange(period.start, period.end) : [];
-  const isValidPeriod = period.start && period.end && period.start <= period.end;
 
   return (
     <div className="space-y-6">
@@ -421,6 +509,63 @@ export default function CampApp() {
             >
               {saved ? "保存しました" : "保存して名簿へ"}
             </button>
+          </div>
+
+          {/* 費用設定 */}
+          <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 p-6 space-y-4">
+            <div>
+              <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">費用設定</h3>
+              <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+                参加者名簿のExcel出力時に、宿泊費と諸経費から一人あたりの徴収金額を自動計算する関数が入ります
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-xs text-gray-400 dark:text-gray-500 mb-1.5">宿泊費（1人1泊あたり）</label>
+              <input
+                type="number"
+                value={costSettings.lodgingFee}
+                onChange={e => updateLodgingFee(Number(e.target.value))}
+                className="w-full rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <label className="block text-xs text-gray-400 dark:text-gray-500">全体でかかる諸経費（宴会費・バス代など）</label>
+              {costSettings.items.map((item, i) => (
+                <div key={i} className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={item.label}
+                    onChange={e => updateCostItem(i, { label: e.target.value })}
+                    placeholder="項目名"
+                    className="flex-1 rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <input
+                    type="number"
+                    value={item.amount}
+                    onChange={e => updateCostItem(i, { amount: Number(e.target.value) })}
+                    placeholder="金額"
+                    className="w-32 rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <button
+                    onClick={() => removeCostItem(i)}
+                    className="flex-shrink-0 p-2 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                    aria-label="項目を削除"
+                  >
+                    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                    </svg>
+                  </button>
+                </div>
+              ))}
+              <button
+                onClick={addCostItem}
+                className="text-xs text-blue-600 dark:text-blue-400 hover:text-blue-700 font-medium"
+              >
+                + 項目を追加
+              </button>
+            </div>
           </div>
 
           {/* 参加可否フォーム作成 */}
@@ -579,34 +724,51 @@ export default function CampApp() {
                 </p>
                 <button
                   onClick={exportExcel}
-                  className="flex items-center gap-2 px-4 py-2 rounded-lg bg-green-600 hover:bg-green-700 text-white text-sm font-medium transition-colors"
+                  disabled={exporting}
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg bg-green-600 hover:bg-green-700 disabled:bg-gray-300 dark:disabled:bg-gray-700 text-white text-sm font-medium transition-colors"
                 >
                   <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/>
                   </svg>
-                  Excelで出力
+                  {exporting ? "出力中..." : "Excelで出力"}
                 </button>
               </div>
+
+              {exportError && (
+                <p className="text-xs text-red-500 bg-red-50 dark:bg-red-900/20 px-3 py-2 rounded-lg">
+                  {exportError}
+                </p>
+              )}
 
               <div className="overflow-x-auto rounded-2xl border border-gray-100 dark:border-gray-700">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="bg-gray-50 dark:bg-gray-800 border-b border-gray-100 dark:border-gray-700">
-                      <th className="text-left px-4 py-3 font-medium text-xs text-gray-400 dark:text-gray-500 whitespace-nowrap">学年</th>
-                      <th className="text-left px-4 py-3 font-medium text-xs text-gray-400 dark:text-gray-500 whitespace-nowrap">名前</th>
+                      <th rowSpan={2} className="text-left px-4 py-3 font-medium text-xs text-gray-400 dark:text-gray-500 whitespace-nowrap align-bottom">学年</th>
+                      <th rowSpan={2} className="text-left px-4 py-3 font-medium text-xs text-gray-400 dark:text-gray-500 whitespace-nowrap align-bottom">名前</th>
                       {dates.map(d => (
-                        <th key={d} className="px-3 py-3 text-center">
-                          <div className="text-xs font-medium text-gray-500 dark:text-gray-400 whitespace-nowrap">{formatDateLabel(d)}</div>
-                          <button
-                            onClick={() => {
-                              const allChecked = members.every(m => attendance[m.name]?.[d]);
-                              toggleAllOnDate(d, !allChecked);
-                            }}
-                            className="mt-1 text-[10px] text-blue-500 hover:text-blue-700 dark:text-blue-400"
-                          >
-                            {members.every(m => attendance[m.name]?.[d]) ? "全解除" : "全選択"}
-                          </button>
+                        <th key={d} colSpan={MEALS.length} className="px-2 py-2 text-center text-xs font-medium text-gray-500 dark:text-gray-400 whitespace-nowrap border-l border-gray-100 dark:border-gray-700">
+                          {formatDateLabel(d)}
                         </th>
+                      ))}
+                      <th rowSpan={2} className="px-3 py-3 text-center text-xs font-medium text-gray-400 dark:text-gray-500 whitespace-nowrap align-bottom border-l border-gray-100 dark:border-gray-700">泊数</th>
+                    </tr>
+                    <tr className="bg-gray-50 dark:bg-gray-800 border-b border-gray-100 dark:border-gray-700">
+                      {dates.map(d => (
+                        MEALS.map(meal => (
+                          <th key={`${d}-${meal}`} className="px-1 py-1.5 text-center border-l border-gray-100 dark:border-gray-700">
+                            <div className="text-[10px] text-gray-400 dark:text-gray-500">{meal}</div>
+                            <button
+                              onClick={() => {
+                                const allChecked = members.every(m => attendance[m.name]?.[d]?.[meal]);
+                                toggleAllMeal(d, meal, !allChecked);
+                              }}
+                              className="text-[10px] text-blue-500 hover:text-blue-700 dark:text-blue-400"
+                            >
+                              {members.every(m => attendance[m.name]?.[d]?.[meal]) ? "解除" : "選択"}
+                            </button>
+                          </th>
+                        ))
                       ))}
                     </tr>
                   </thead>
@@ -619,19 +781,24 @@ export default function CampApp() {
                         <td className="px-4 py-3 text-gray-500 dark:text-gray-400 whitespace-nowrap">{m.grade}</td>
                         <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200 whitespace-nowrap">{m.name}</td>
                         {dates.map(d => (
-                          <td key={d} className="px-3 py-3 text-center">
-                            <button
-                              onClick={() => toggleDay(m.name, d)}
-                              className={`w-8 h-8 rounded-lg text-sm font-medium transition-all ${
-                                attendance[m.name]?.[d]
-                                  ? "bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 hover:bg-blue-200 dark:hover:bg-blue-800/60"
-                                  : "bg-gray-100 dark:bg-gray-700 text-gray-300 dark:text-gray-600 hover:bg-gray-200 dark:hover:bg-gray-600"
-                              }`}
-                            >
-                              {attendance[m.name]?.[d] ? "○" : ""}
-                            </button>
-                          </td>
+                          MEALS.map(meal => (
+                            <td key={`${d}-${meal}`} className="px-1 py-2 text-center border-l border-gray-50 dark:border-gray-700/50">
+                              <button
+                                onClick={() => toggleMeal(m.name, d, meal)}
+                                className={`w-7 h-7 rounded-lg text-xs font-medium transition-all ${
+                                  attendance[m.name]?.[d]?.[meal]
+                                    ? "bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 hover:bg-blue-200 dark:hover:bg-blue-800/60"
+                                    : "bg-gray-100 dark:bg-gray-700 text-gray-300 dark:text-gray-600 hover:bg-gray-200 dark:hover:bg-gray-600"
+                                }`}
+                              >
+                                {attendance[m.name]?.[d]?.[meal] ? "○" : "×"}
+                              </button>
+                            </td>
+                          ))
                         ))}
+                        <td className="px-3 py-3 text-center text-gray-500 dark:text-gray-400 border-l border-gray-50 dark:border-gray-700/50">
+                          {nightsCount(m.name)}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -639,7 +806,7 @@ export default function CampApp() {
               </div>
 
               <p className="text-xs text-gray-400 dark:text-gray-500">
-                ○ = 参加　空欄 = 不参加・途中参加なし
+                ○ = 参加　× = 不参加　（泊数は「夜」の出席から自動計算されます）
               </p>
             </>
           )}
