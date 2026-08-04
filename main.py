@@ -1,19 +1,25 @@
 # -*- coding: utf-8 -*-
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import List, Optional, Dict
 from passlib.context import CryptContext
 import os
+import io
 import json
 import time
 import logging
 import requests
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
+from urllib.parse import quote
 from dotenv import load_dotenv
 
 import psycopg2
+import openpyxl
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.utils import get_column_letter
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
@@ -158,6 +164,9 @@ ALLOWED_ORIGINS = os.environ.get(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
+    # ブランチごとに変わるVercelプレビューURL(circlemanage-git-xxx.vercel.app等)を
+    # 都度ALLOWED_ORIGINSに追加しなくて済むよう、vercel.appサブドメインは包括的に許可する
+    allow_origin_regex=r"https://.*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -186,6 +195,27 @@ class FormConfig(BaseModel):
 class SheetConfig(BaseModel):
     access_token: str
     spreadsheet_id: str
+
+class CampFormConfig(BaseModel):
+    access_token: str
+    camp_dates: List[str]
+    event_name: str = "合宿参加可否アンケート"
+
+class CampRosterMember(BaseModel):
+    grade: str = ""
+    name: str
+
+class CampCostItem(BaseModel):
+    label: str
+    amount: float = 0
+
+class CampRosterExportRequest(BaseModel):
+    members: List[CampRosterMember]
+    dates: List[str]  # ISO形式 (yyyy-mm-dd)
+    # 出欠: 氏名 -> 日付 -> 食事("朝"/"昼"/"夜") -> 参加有無
+    attendance: Dict[str, Dict[str, Dict[str, bool]]] = {}
+    lodging_fee: float = 0  # 宿泊費(1人1泊あたり)
+    cost_items: List[CampCostItem] = []
 
 class CostMember(BaseModel):
     name: str
@@ -853,6 +883,345 @@ async def create_form(config: FormConfig):
         "edit_url": f"https://docs.google.com/forms/d/{form_id}/edit",
         "sheet_url": f"https://docs.google.com/forms/d/{form_id}/edit#responses",
     }
+
+
+# ==========================================
+# Google Forms API - 合宿参加可否フォーム自動作成
+# ==========================================
+@app.post("/create-camp-form")
+async def create_camp_form(config: CampFormConfig):
+    import requests as req
+
+    headers = {
+        "Authorization": f"Bearer {config.access_token}",
+        "Content-Type": "application/json"
+    }
+
+    res = req.post(
+        "https://forms.googleapis.com/v1/forms",
+        headers=headers,
+        json={"info": {"title": config.event_name, "documentTitle": config.event_name}}
+    )
+    if res.status_code != 200:
+        return {"error": f"フォーム作成に失敗しました: {res.text}"}
+
+    form_id = res.json()["formId"]
+
+    date_labels = []
+    for d in config.camp_dates:
+        try:
+            dt = datetime.strptime(d, "%Y-%m-%d")
+            date_labels.append(f"{dt.month}/{dt.day}")
+        except Exception:
+            date_labels.append(d)
+
+    batch_body = {"requests": [
+        {
+            "createItem": {
+                "item": {
+                    "title": "名前",
+                    "questionItem": {"question": {"required": True, "textQuestion": {}}}
+                },
+                "location": {"index": 0}
+            }
+        },
+        {
+            "createItem": {
+                "item": {
+                    "title": "参加",
+                    "questionItem": {
+                        "question": {
+                            "required": True,
+                            "choiceQuestion": {
+                                "type": "RADIO",
+                                "options": [
+                                    {"value": "全参加", "goToAction": "SUBMIT_FORM"},
+                                    {"value": "途中参加or途中帰宅"}
+                                ]
+                            }
+                        }
+                    }
+                },
+                "location": {"index": 1}
+            }
+        },
+        {
+            "createItem": {
+                "item": {
+                    "title": "詳細（途中参加・途中帰宅の方のみ）",
+                    "description": "途中から参加または途中で帰宅する方は以下を入力してください",
+                    "pageBreakItem": {}
+                },
+                "location": {"index": 2}
+            }
+        },
+        {
+            "createItem": {
+                "item": {
+                    "title": "参加日",
+                    "questionItem": {
+                        "question": {
+                            "required": False,
+                            "choiceQuestion": {
+                                "type": "DROP_DOWN",
+                                "options": [{"value": d} for d in date_labels]
+                            }
+                        }
+                    }
+                },
+                "location": {"index": 3}
+            }
+        },
+        {
+            "createItem": {
+                "item": {
+                    "title": "参加日の飯",
+                    "questionItem": {
+                        "question": {
+                            "required": False,
+                            "choiceQuestion": {
+                                "type": "CHECKBOX",
+                                "options": [
+                                    {"value": "朝飯から"},
+                                    {"value": "昼飯から"},
+                                    {"value": "夜飯から"},
+                                    {"value": "いらない"}
+                                ]
+                            }
+                        }
+                    }
+                },
+                "location": {"index": 4}
+            }
+        },
+        {
+            "createItem": {
+                "item": {
+                    "title": "帰宅日",
+                    "questionItem": {
+                        "question": {
+                            "required": False,
+                            "choiceQuestion": {
+                                "type": "DROP_DOWN",
+                                "options": [{"value": d} for d in date_labels]
+                            }
+                        }
+                    }
+                },
+                "location": {"index": 5}
+            }
+        },
+        {
+            "createItem": {
+                "item": {
+                    "title": "帰宅日の飯",
+                    "questionItem": {
+                        "question": {
+                            "required": False,
+                            "choiceQuestion": {
+                                "type": "CHECKBOX",
+                                "options": [
+                                    {"value": "朝飯まで"},
+                                    {"value": "昼飯まで"},
+                                    {"value": "夜飯まで"},
+                                    {"value": "いらない"}
+                                ]
+                            }
+                        }
+                    }
+                },
+                "location": {"index": 6}
+            }
+        }
+    ]}
+
+    batch_res = req.post(
+        f"https://forms.googleapis.com/v1/forms/{form_id}:batchUpdate",
+        headers=headers,
+        json=batch_body
+    )
+    if batch_res.status_code != 200:
+        return {"error": f"質問の追加に失敗しました: {batch_res.text}"}
+
+    return {
+        "form_id": form_id,
+        "form_url": f"https://docs.google.com/forms/d/{form_id}/viewform",
+        "edit_url": f"https://docs.google.com/forms/d/{form_id}/edit"
+    }
+
+
+# ==========================================
+# 合宿 参加者名簿 Excel出力
+# 「2024合宿会計夏最終.xlsx」のSheet1（名簿）・合宿全体費用タブを
+# ひな形として、学年/氏名/日付ごとの朝昼夜の出欠・泊数・徴収金額を
+# 関数付きで出力する。
+# ==========================================
+CAMP_MEALS = ["朝", "昼", "夜"]
+
+def _camp_date_label(iso: str) -> str:
+    try:
+        dt = datetime.strptime(iso, "%Y-%m-%d")
+        return f"{dt.month}/{dt.day}"
+    except Exception:
+        return iso
+
+@app.post("/export-camp-roster")
+async def export_camp_roster(data: CampRosterExportRequest):
+    wb = openpyxl.Workbook()
+
+    # ---- スタイル定義 ----
+    input_fill = PatternFill("solid", fgColor="DDEBF7")   # 青地: 自由に入力できる項目
+    header_fill = PatternFill("solid", fgColor="404040")
+    header_font = Font(color="FFFFFF", bold=True)
+    calc_font = Font(color="217346", bold=True)            # 緑字: 数式で自動計算される項目
+    thin = Side(style="thin", color="BFBFBF")
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+    center = Alignment(horizontal="center", vertical="center")
+
+    n_members = len(data.members)
+    roster_start_row = 3  # 名簿シートのデータ開始行(ヘッダー2行の下)
+    roster_last_row = roster_start_row + max(n_members, 1) - 1
+
+    # ==================================================
+    # シート1: 合宿全体費用（費用パラメータ）
+    # ==================================================
+    ws_cost = wb.active
+    ws_cost.title = "合宿全体費用"
+
+    ws_cost["A1"] = "色分け説明"
+    ws_cost["A1"].font = Font(bold=True)
+    ws_cost["A2"] = "青地：自由に金額を入力できる項目"
+    ws_cost["A2"].fill = input_fill
+    ws_cost["A3"] = "緑字：数式で自動計算される項目（編集しない）"
+    ws_cost["A3"].font = calc_font
+
+    ws_cost["A5"] = "参加人数"
+    ws_cost["B5"] = f"=COUNTA(名簿!B{roster_start_row}:B{roster_last_row})"
+    ws_cost["B5"].font = calc_font
+
+    ws_cost["A6"] = "宿泊費（1人1泊あたり）"
+    ws_cost["B6"] = data.lodging_fee
+    ws_cost["B6"].fill = input_fill
+
+    ws_cost["A8"] = "項目"
+    ws_cost["B8"] = "金額（全体）"
+    ws_cost["A8"].font = header_font
+    ws_cost["A8"].fill = header_fill
+    ws_cost["B8"].font = header_font
+    ws_cost["B8"].fill = header_fill
+
+    row = 9
+    items_start = row
+    for item in data.cost_items:
+        ws_cost.cell(row=row, column=1, value=item.label)
+        cell = ws_cost.cell(row=row, column=2, value=item.amount)
+        cell.fill = input_fill
+        row += 1
+    items_end = max(row - 1, items_start)
+
+    total_row = row + 1
+    ws_cost.cell(row=total_row, column=1, value="固定費合計")
+    ws_cost.cell(row=total_row, column=2, value=f"=SUM(B{items_start}:B{items_end})").font = calc_font
+
+    per_person_row = total_row + 1
+    ws_cost.cell(row=per_person_row, column=1, value="一人あたり固定費")
+    ws_cost.cell(row=per_person_row, column=2, value=f"=B{total_row}/B5").font = calc_font
+
+    ws_cost.column_dimensions["A"].width = 28
+    ws_cost.column_dimensions["B"].width = 16
+
+    # ==================================================
+    # シート2: 名簿
+    # ==================================================
+    ws = wb.create_sheet("名簿")
+
+    col_grade = 1
+    col_name = 2
+    meal_start_col = 3
+    n_dates = len(data.dates)
+    col_nights = meal_start_col + n_dates * len(CAMP_MEALS)
+    col_fee = col_nights + 1
+
+    ws.cell(row=1, column=col_grade, value="学年")
+    ws.cell(row=1, column=col_name, value="氏名")
+    ws.cell(row=1, column=col_nights, value="泊数")
+    ws.cell(row=1, column=col_fee, value="徴収金額")
+    ws.merge_cells(start_row=1, start_column=col_grade, end_row=2, end_column=col_grade)
+    ws.merge_cells(start_row=1, start_column=col_name, end_row=2, end_column=col_name)
+    ws.merge_cells(start_row=1, start_column=col_nights, end_row=2, end_column=col_nights)
+    ws.merge_cells(start_row=1, start_column=col_fee, end_row=2, end_column=col_fee)
+
+    for i, iso in enumerate(data.dates):
+        base_col = meal_start_col + i * len(CAMP_MEALS)
+        ws.cell(row=1, column=base_col, value=_camp_date_label(iso))
+        ws.merge_cells(start_row=1, start_column=base_col, end_row=1, end_column=base_col + len(CAMP_MEALS) - 1)
+        for j, meal in enumerate(CAMP_MEALS):
+            ws.cell(row=2, column=base_col + j, value=meal)
+
+    for col in range(1, col_fee + 1):
+        for r in (1, 2):
+            cell = ws.cell(row=r, column=col)
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = center
+            cell.border = border
+
+    for i, member in enumerate(data.members):
+        r = roster_start_row + i
+        ws.cell(row=r, column=col_grade, value=member.grade).border = border
+        ws.cell(row=r, column=col_name, value=member.name).border = border
+
+        dinner_coords = []
+        member_att = data.attendance.get(member.name) or {}
+        for d_i, iso in enumerate(data.dates):
+            base_col = meal_start_col + d_i * len(CAMP_MEALS)
+            date_att = member_att.get(iso) or {}
+            for m_i, meal in enumerate(CAMP_MEALS):
+                mark = "○" if date_att.get(meal) else "×"
+                cell = ws.cell(row=r, column=base_col + m_i, value=mark)
+                cell.alignment = center
+                cell.border = border
+                cell.fill = input_fill
+                if meal == "夜":
+                    dinner_coords.append(cell.coordinate)
+
+        nights_formula = "=" + "+".join(f'COUNTIF({c},"○")' for c in dinner_coords) if dinner_coords else "=0"
+        nights_cell = ws.cell(row=r, column=col_nights, value=nights_formula)
+        nights_cell.font = calc_font
+        nights_cell.alignment = center
+        nights_cell.border = border
+
+        fee_formula = (
+            f"=ROUNDUP({nights_cell.coordinate}*合宿全体費用!$B$6"
+            f"+合宿全体費用!$B${per_person_row},-3)"
+        )
+        fee_cell = ws.cell(row=r, column=col_fee, value=fee_formula)
+        fee_cell.font = calc_font
+        fee_cell.alignment = center
+        fee_cell.border = border
+        fee_cell.number_format = "#,##0"
+
+    ws.column_dimensions[get_column_letter(col_grade)].width = 8
+    ws.column_dimensions[get_column_letter(col_name)].width = 14
+    for col in range(meal_start_col, col_nights):
+        ws.column_dimensions[get_column_letter(col)].width = 5
+    ws.column_dimensions[get_column_letter(col_nights)].width = 7
+    ws.column_dimensions[get_column_letter(col_fee)].width = 12
+    ws.freeze_panes = ws.cell(row=roster_start_row, column=meal_start_col).coordinate
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+
+    filename = "合宿参加者名簿.xlsx"
+    headers = {
+        "Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}"
+    }
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers=headers,
+    )
 
 
 # ==========================================
