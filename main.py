@@ -164,6 +164,9 @@ ALLOWED_ORIGINS = os.environ.get(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
+    # ブランチごとに変わるVercelプレビューURL(circlemanage-git-xxx.vercel.app等)を
+    # 都度ALLOWED_ORIGINSに追加しなくて済むよう、vercel.appサブドメインは包括的に許可する
+    allow_origin_regex=r"https://.*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
