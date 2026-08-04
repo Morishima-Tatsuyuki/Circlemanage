@@ -2,6 +2,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import AuthButton from "@/components/AuthButton";
 
 const SunIcon = () => (
   <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
@@ -105,6 +106,9 @@ export default function Navbar() {
               className="p-2 rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
               {dark ? <SunIcon /> : <MoonIcon />}
             </button>
+            <div className="hidden md:block">
+              <AuthButton />
+            </div>
             <button
               onClick={() => setMenuOpen(true)}
               className="p-2 rounded-lg text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors ml-1"
@@ -161,6 +165,9 @@ export default function Navbar() {
 
             {/* ドロワーフッター */}
             <div className="px-6 py-5 border-t border-gray-100 dark:border-gray-800 space-y-3">
+              <div className="md:hidden">
+                <AuthButton />
+              </div>
               <p className="text-xs text-gray-400 text-center">サークル管理ツール</p>
             </div>
           </div>
