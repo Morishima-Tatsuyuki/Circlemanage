@@ -246,6 +246,14 @@ function nightsAndDays(start: string, end: string): string {
   return diff > 0 ? `${diff}泊${diff + 1}日` : "日帰り";
 }
 
+// 既定の出欠: 基本的に全食参加。ただし初日の朝食と最終日の夕食は
+// (前日入り・翌日退所が普通のため)既定で不参加とする。
+function defaultMealValue(dateIndex: number, meal: Meal, totalDates: number): boolean {
+  if (dateIndex === 0 && meal === "朝") return false;
+  if (totalDates > 0 && dateIndex === totalDates - 1 && meal === "夜") return false;
+  return true;
+}
+
 export default function CampApp() {
   const { data: session } = useSession();
   const [section, setSection] = useState<"settings" | "roster">("settings");
@@ -329,14 +337,14 @@ export default function CampApp() {
       const next: Attendance = {};
       for (const m of members_) {
         next[m.name] = {};
-        for (const d of dates) {
+        dates.forEach((d, i) => {
           const prevMeal = prev[m.name]?.[d];
           next[m.name][d] = {
-            朝: prevMeal?.朝 ?? true,
-            昼: prevMeal?.昼 ?? true,
-            夜: prevMeal?.夜 ?? true,
+            朝: prevMeal?.朝 ?? defaultMealValue(i, "朝", dates.length),
+            昼: prevMeal?.昼 ?? defaultMealValue(i, "昼", dates.length),
+            夜: prevMeal?.夜 ?? defaultMealValue(i, "夜", dates.length),
           };
-        }
+        });
       }
       localStorage.setItem(CAMP_ATTENDANCE_KEY, JSON.stringify(next));
       return next;
@@ -494,6 +502,36 @@ export default function CampApp() {
   const nightsCount = useCallback((name: string) => {
     return dates.reduce((acc, d) => acc + (attendance[name]?.[d]?.夜 ? 1 : 0), 0);
   }, [attendance, dates]);
+
+  // 途中参加などでご飯がいらない日がある人向け:
+  // 「何日目からご飯が必要か」を指定すると、それより前の日の食事は
+  // 一括で不参加にし、それ以降は既定ルール(初日朝食・最終日夕食を除き参加)に戻す
+  const getMealStartIndex = useCallback((name: string) => {
+    for (let i = 0; i < dates.length; i++) {
+      const dayAtt = attendance[name]?.[dates[i]];
+      if (dayAtt && (dayAtt.朝 || dayAtt.昼 || dayAtt.夜)) return i;
+    }
+    return 0;
+  }, [attendance, dates]);
+
+  const applyMealStartDay = useCallback((name: string, startIndex: number) => {
+    setAttendance(prev => {
+      const prevMember = prev[name] ?? {};
+      const nextMember: Record<string, Record<Meal, boolean>> = { ...prevMember };
+      dates.forEach((d, i) => {
+        nextMember[d] = i < startIndex
+          ? { 朝: false, 昼: false, 夜: false }
+          : {
+              朝: defaultMealValue(i, "朝", dates.length),
+              昼: defaultMealValue(i, "昼", dates.length),
+              夜: defaultMealValue(i, "夜", dates.length),
+            };
+      });
+      const next: Attendance = { ...prev, [name]: nextMember };
+      localStorage.setItem(CAMP_ATTENDANCE_KEY, JSON.stringify(next));
+      return next;
+    });
+  }, [dates]);
 
   const exportExcel = async () => {
     if (!period.start || !period.end) return;
@@ -828,6 +866,7 @@ export default function CampApp() {
                     <tr className="bg-gray-50 dark:bg-gray-800 border-b border-gray-100 dark:border-gray-700">
                       <th rowSpan={2} className="text-left px-4 py-3 font-medium text-xs text-gray-400 dark:text-gray-500 whitespace-nowrap align-bottom">学年</th>
                       <th rowSpan={2} className="text-left px-4 py-3 font-medium text-xs text-gray-400 dark:text-gray-500 whitespace-nowrap align-bottom">名前</th>
+                      <th rowSpan={2} className="px-2 py-3 text-center text-xs font-medium text-gray-400 dark:text-gray-500 whitespace-nowrap align-bottom border-l border-gray-100 dark:border-gray-700">食事開始日</th>
                       {dates.map(d => (
                         <th key={d} colSpan={MEALS.length} className="px-2 py-2 text-center text-xs font-medium text-gray-500 dark:text-gray-400 whitespace-nowrap border-l border-gray-100 dark:border-gray-700">
                           {formatDateLabel(d)}
@@ -869,6 +908,19 @@ export default function CampApp() {
                       >
                         <td className="px-4 py-3 text-gray-500 dark:text-gray-400 whitespace-nowrap">{m.grade}</td>
                         <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200 whitespace-nowrap">{m.name}</td>
+                        <td className="px-2 py-2 text-center border-l border-gray-50 dark:border-gray-700/50">
+                          <select
+                            value={getMealStartIndex(m.name)}
+                            onChange={e => applyMealStartDay(m.name, Number(e.target.value))}
+                            className="text-xs rounded-md border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-gray-600 dark:text-gray-300 px-1.5 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          >
+                            {dates.map((d, i) => (
+                              <option key={d} value={i}>
+                                {i === 0 ? "通常(初日から)" : `${formatDateLabel(d)}(${i + 1}日目)から`}
+                              </option>
+                            ))}
+                          </select>
+                        </td>
                         {dates.map(d => (
                           MEALS.map(meal => (
                             <td key={`${d}-${meal}`} className="px-1 py-2 text-center border-l border-gray-50 dark:border-gray-700/50">
@@ -900,7 +952,10 @@ export default function CampApp() {
               </div>
 
               <p className="text-xs text-gray-400 dark:text-gray-500">
-                ○ = 参加　× = 不参加　（泊数は「夜」の出席から自動計算されます）
+                ○ = 参加　× = 不参加　（初日の朝食・最終日の夕食は既定で×、泊数は「夜」の出席から自動計算されます）
+              </p>
+              <p className="text-xs text-gray-400 dark:text-gray-500">
+                途中参加などでご飯が不要な日がある人は、「食事開始日」でその人の食事が必要になる日を選んでください（それより前の食事は自動的に×になります。その後も個別のマス目で細かく調整できます）
               </p>
             </>
           )}
