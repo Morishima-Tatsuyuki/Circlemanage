@@ -20,15 +20,29 @@ type Meal = (typeof MEALS)[number];
 // 氏名 -> 日付 -> 食事 -> 参加有無
 type Attendance = Record<string, Record<string, Record<Meal, boolean>>>;
 
+// 氏名 -> 前金を徴収済みか
+type DepositPaid = Record<string, boolean>;
+
 type CostItem = { label: string; amount: number };
+
+type MealPrices = Record<Meal, number>;
+
+// BBQなど、特定の日だけ夕食が通常と異なる単価になる場合の設定
+type SpecialDinnerPrice = { id: string; date: string; price: number };
 
 type CostSettings = {
   lodgingFee: number;
+  mealPrices: MealPrices;
+  specialDinnerPrices: SpecialDinnerPrice[];
+  depositAmount: number;
   items: CostItem[];
 };
 
 const DEFAULT_COST_SETTINGS: CostSettings = {
   lodgingFee: 8400,
+  mealPrices: { 朝: 0, 昼: 0, 夜: 0 },
+  specialDinnerPrices: [],
+  depositAmount: 0,
   items: [
     { label: "宴会費", amount: 0 },
     { label: "保険料", amount: 0 },
@@ -42,6 +56,7 @@ const ROSTER_KEY = "roster_members";
 const CAMP_PERIOD_KEY = "camp_period";
 const CAMP_ATTENDANCE_KEY = "camp_attendance";
 const CAMP_COST_KEY = "camp_cost_settings";
+const CAMP_DEPOSIT_KEY = "camp_deposit_paid";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -80,10 +95,19 @@ function nightsAndDays(start: string, end: string): string {
   return diff > 0 ? `${diff}泊${diff + 1}日` : "日帰り";
 }
 
+// 既定の出欠: 基本的に全食参加。ただし初日の朝食と最終日の夕食は
+// (前日入り・翌日退所が普通のため)既定で不参加とする。
+function defaultMealValue(dateIndex: number, meal: Meal, totalDates: number): boolean {
+  if (dateIndex === 0 && meal === "朝") return false;
+  if (totalDates > 0 && dateIndex === totalDates - 1 && meal === "夜") return false;
+  return true;
+}
+
 export default function CampApp() {
   const [section, setSection] = useState<"settings" | "roster">("settings");
   const [period, setPeriod] = useState<Period>({ start: "", end: "" });
   const [attendance, setAttendance] = useState<Attendance>({});
+  const [depositPaid, setDepositPaid] = useState<DepositPaid>({});
   const [members, setMembers] = useState<Member[]>([]);
   const [saved, setSaved] = useState(false);
   const [costSettings, setCostSettings] = useState<CostSettings>(DEFAULT_COST_SETTINGS);
@@ -107,9 +131,22 @@ export default function CampApp() {
       try { setMembers(JSON.parse(r)); } catch {}
     }
 
+    const dp = localStorage.getItem(CAMP_DEPOSIT_KEY);
+    if (dp) {
+      try { setDepositPaid(JSON.parse(dp)); } catch {}
+    }
+
     const c = localStorage.getItem(CAMP_COST_KEY);
     if (c) {
-      try { setCostSettings(JSON.parse(c)); } catch {}
+      try {
+        const parsed = JSON.parse(c);
+        setCostSettings({
+          ...DEFAULT_COST_SETTINGS,
+          ...parsed,
+          mealPrices: { ...DEFAULT_COST_SETTINGS.mealPrices, ...(parsed.mealPrices ?? {}) },
+          specialDinnerPrices: parsed.specialDinnerPrices ?? [],
+        });
+      } catch {}
     }
   }, []);
 
@@ -126,6 +163,38 @@ export default function CampApp() {
 
   const updateLodgingFee = (value: number) => {
     saveCostSettings({ ...costSettings, lodgingFee: value });
+  };
+
+  const updateDepositAmount = (value: number) => {
+    saveCostSettings({ ...costSettings, depositAmount: value });
+  };
+
+  const updateMealPrice = (meal: Meal, value: number) => {
+    saveCostSettings({ ...costSettings, mealPrices: { ...costSettings.mealPrices, [meal]: value } });
+  };
+
+  const addSpecialDinnerPrice = () => {
+    saveCostSettings({
+      ...costSettings,
+      specialDinnerPrices: [
+        ...costSettings.specialDinnerPrices,
+        { id: crypto.randomUUID(), date: dates[0] ?? "", price: costSettings.mealPrices.夜 },
+      ],
+    });
+  };
+
+  const updateSpecialDinnerPrice = (id: string, patch: Partial<SpecialDinnerPrice>) => {
+    saveCostSettings({
+      ...costSettings,
+      specialDinnerPrices: costSettings.specialDinnerPrices.map(s => (s.id === id ? { ...s, ...patch } : s)),
+    });
+  };
+
+  const removeSpecialDinnerPrice = (id: string) => {
+    saveCostSettings({
+      ...costSettings,
+      specialDinnerPrices: costSettings.specialDinnerPrices.filter(s => s.id !== id),
+    });
   };
 
   const updateCostItem = (index: number, patch: Partial<CostItem>) => {
@@ -154,14 +223,14 @@ export default function CampApp() {
       const next: Attendance = {};
       for (const m of members_) {
         next[m.name] = {};
-        for (const d of dates) {
+        dates.forEach((d, i) => {
           const prevMeal = prev[m.name]?.[d];
           next[m.name][d] = {
-            朝: prevMeal?.朝 ?? true,
-            昼: prevMeal?.昼 ?? true,
-            夜: prevMeal?.夜 ?? true,
+            朝: prevMeal?.朝 ?? defaultMealValue(i, "朝", dates.length),
+            昼: prevMeal?.昼 ?? defaultMealValue(i, "昼", dates.length),
+            夜: prevMeal?.夜 ?? defaultMealValue(i, "夜", dates.length),
           };
-        }
+        });
       }
       localStorage.setItem(CAMP_ATTENDANCE_KEY, JSON.stringify(next));
       return next;
@@ -184,6 +253,14 @@ export default function CampApp() {
         },
       };
       localStorage.setItem(CAMP_ATTENDANCE_KEY, JSON.stringify(next));
+      return next;
+    });
+  }, []);
+
+  const toggleDeposit = useCallback((name: string) => {
+    setDepositPaid(prev => {
+      const next = { ...prev, [name]: !prev[name] };
+      localStorage.setItem(CAMP_DEPOSIT_KEY, JSON.stringify(next));
       return next;
     });
   }, []);
@@ -281,9 +358,41 @@ export default function CampApp() {
     });
   }, []);
 
+  // 泊数(宿泊費の対象): 最終日は夜に宿泊しないため、最終日の夕食は
+  // ○であっても泊数には数えない(食費としては引き続き計算される)
   const nightsCount = useCallback((name: string) => {
-    return dates.reduce((acc, d) => acc + (attendance[name]?.[d]?.夜 ? 1 : 0), 0);
+    return dates.reduce((acc, d, i) => acc + (i < dates.length - 1 && attendance[name]?.[d]?.夜 ? 1 : 0), 0);
   }, [attendance, dates]);
+
+  // 途中参加などでご飯がいらない日がある人向け:
+  // 「何日目からご飯が必要か」を指定すると、それより前の日の食事は
+  // 一括で不参加にし、それ以降は既定ルール(初日朝食・最終日夕食を除き参加)に戻す
+  const getMealStartIndex = useCallback((name: string) => {
+    for (let i = 0; i < dates.length; i++) {
+      const dayAtt = attendance[name]?.[dates[i]];
+      if (dayAtt && (dayAtt.朝 || dayAtt.昼 || dayAtt.夜)) return i;
+    }
+    return 0;
+  }, [attendance, dates]);
+
+  const applyMealStartDay = useCallback((name: string, startIndex: number) => {
+    setAttendance(prev => {
+      const prevMember = prev[name] ?? {};
+      const nextMember: Record<string, Record<Meal, boolean>> = { ...prevMember };
+      dates.forEach((d, i) => {
+        nextMember[d] = i < startIndex
+          ? { 朝: false, 昼: false, 夜: false }
+          : {
+              朝: defaultMealValue(i, "朝", dates.length),
+              昼: defaultMealValue(i, "昼", dates.length),
+              夜: defaultMealValue(i, "夜", dates.length),
+            };
+      });
+      const next: Attendance = { ...prev, [name]: nextMember };
+      localStorage.setItem(CAMP_ATTENDANCE_KEY, JSON.stringify(next));
+      return next;
+    });
+  }, [dates]);
 
   const exportExcel = async () => {
     if (!period.start || !period.end) return;
@@ -298,6 +407,10 @@ export default function CampApp() {
           dates,
           attendance,
           lodging_fee: costSettings.lodgingFee,
+          meal_prices: costSettings.mealPrices,
+          special_dinner_prices: costSettings.specialDinnerPrices.map(s => ({ date: s.date, price: s.price })),
+          deposit_amount: costSettings.depositAmount,
+          deposit_paid: Object.fromEntries(members.map(m => [m.name, !!depositPaid[m.name]])),
           cost_items: costSettings.items,
         }),
       });
@@ -385,7 +498,7 @@ export default function CampApp() {
             <div>
               <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">費用設定</h3>
               <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
-                参加者名簿のExcel出力時に、宿泊費と諸経費から一人あたりの徴収金額を自動計算する関数が入ります
+                参加者名簿のExcel出力時に、宿泊費・食事代・諸経費から一人あたりの徴収金額を自動計算する関数が入ります
               </p>
             </div>
 
@@ -397,6 +510,80 @@ export default function CampApp() {
                 onChange={e => updateLodgingFee(Number(e.target.value))}
                 className="w-full rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
+            </div>
+
+            <div>
+              <label className="block text-xs text-gray-400 dark:text-gray-500 mb-1.5">前金（1人あたり）</label>
+              <input
+                type="number"
+                value={costSettings.depositAmount}
+                onChange={e => updateDepositAmount(Number(e.target.value))}
+                placeholder="例：30000（先に集める前金額。0なら前金なし）"
+                className="w-full rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              <p className="text-[10px] text-gray-400 dark:text-gray-500 mt-1">
+                参加者名簿で「前金徴収」を○にした人は、当日の徴収額からこの金額が差し引かれます
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-xs text-gray-400 dark:text-gray-500 mb-1.5">食事料金（1食あたり）</label>
+              <div className="grid grid-cols-3 gap-2">
+                {MEALS.map(meal => (
+                  <div key={meal}>
+                    <label className="block text-[10px] text-gray-400 dark:text-gray-500 mb-1">{meal}食</label>
+                    <input
+                      type="number"
+                      value={costSettings.mealPrices[meal]}
+                      onChange={e => updateMealPrice(meal, Number(e.target.value))}
+                      className="w-full rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <label className="block text-xs text-gray-400 dark:text-gray-500">特別料金日（BBQなど、夕食だけ通常と異なる日）</label>
+              {costSettings.specialDinnerPrices.map(sp => (
+                <div key={sp.id} className="flex items-center gap-2">
+                  <select
+                    value={sp.date}
+                    onChange={e => updateSpecialDinnerPrice(sp.id, { date: e.target.value })}
+                    className="flex-1 rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    {dates.map(d => (
+                      <option key={d} value={d}>{formatDateLabel(d)}の夕食</option>
+                    ))}
+                  </select>
+                  <input
+                    type="number"
+                    value={sp.price}
+                    onChange={e => updateSpecialDinnerPrice(sp.id, { price: Number(e.target.value) })}
+                    placeholder="特別単価"
+                    className="w-32 rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <button
+                    onClick={() => removeSpecialDinnerPrice(sp.id)}
+                    className="flex-shrink-0 p-2 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                    aria-label="削除"
+                  >
+                    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                    </svg>
+                  </button>
+                </div>
+              ))}
+              {dates.length > 0 ? (
+                <button
+                  onClick={addSpecialDinnerPrice}
+                  className="text-xs text-blue-600 dark:text-blue-400 hover:text-blue-700 font-medium"
+                >
+                  + BBQなど特別料金日を追加
+                </button>
+              ) : (
+                <p className="text-xs text-gray-400 dark:text-gray-500">先に合宿期間を入力すると日付を選べるようになります</p>
+              )}
             </div>
 
             <div className="space-y-2">
@@ -499,12 +686,14 @@ export default function CampApp() {
                     <tr className="bg-gray-50 dark:bg-gray-800 border-b border-gray-100 dark:border-gray-700">
                       <th rowSpan={2} className="text-left px-4 py-3 font-medium text-xs text-gray-400 dark:text-gray-500 whitespace-nowrap align-bottom">学年</th>
                       <th rowSpan={2} className="text-left px-4 py-3 font-medium text-xs text-gray-400 dark:text-gray-500 whitespace-nowrap align-bottom">名前</th>
+                      <th rowSpan={2} className="px-2 py-3 text-center text-xs font-medium text-gray-400 dark:text-gray-500 whitespace-nowrap align-bottom border-l border-gray-100 dark:border-gray-700">食事開始日</th>
                       {dates.map(d => (
                         <th key={d} colSpan={MEALS.length} className="px-2 py-2 text-center text-xs font-medium text-gray-500 dark:text-gray-400 whitespace-nowrap border-l border-gray-100 dark:border-gray-700">
                           {formatDateLabel(d)}
                         </th>
                       ))}
                       <th rowSpan={2} className="px-3 py-3 text-center text-xs font-medium text-gray-400 dark:text-gray-500 whitespace-nowrap align-bottom border-l border-gray-100 dark:border-gray-700">泊数</th>
+                      <th rowSpan={2} className="px-3 py-3 text-center text-xs font-medium text-gray-400 dark:text-gray-500 whitespace-nowrap align-bottom border-l border-gray-100 dark:border-gray-700">前金徴収</th>
                     </tr>
                     <tr className="bg-gray-50 dark:bg-gray-800 border-b border-gray-100 dark:border-gray-700">
                       {dates.map(d => (
@@ -540,6 +729,19 @@ export default function CampApp() {
                       >
                         <td className="px-4 py-3 text-gray-500 dark:text-gray-400 whitespace-nowrap">{m.grade}</td>
                         <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200 whitespace-nowrap">{m.name}</td>
+                        <td className="px-2 py-2 text-center border-l border-gray-50 dark:border-gray-700/50">
+                          <select
+                            value={getMealStartIndex(m.name)}
+                            onChange={e => applyMealStartDay(m.name, Number(e.target.value))}
+                            className="text-xs rounded-md border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-gray-600 dark:text-gray-300 px-1.5 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          >
+                            {dates.map((d, i) => (
+                              <option key={d} value={i}>
+                                {i === 0 ? "通常(初日から)" : `${formatDateLabel(d)}(${i + 1}日目)から`}
+                              </option>
+                            ))}
+                          </select>
+                        </td>
                         {dates.map(d => (
                           MEALS.map(meal => (
                             <td key={`${d}-${meal}`} className="px-1 py-2 text-center border-l border-gray-50 dark:border-gray-700/50">
@@ -564,6 +766,19 @@ export default function CampApp() {
                         <td className="px-3 py-3 text-center text-gray-500 dark:text-gray-400 border-l border-gray-50 dark:border-gray-700/50">
                           {nightsCount(m.name)}
                         </td>
+                        <td className="px-3 py-2 text-center border-l border-gray-50 dark:border-gray-700/50">
+                          <button
+                            type="button"
+                            onClick={() => toggleDeposit(m.name)}
+                            className={`w-7 h-7 rounded-lg text-xs font-medium transition-all ${
+                              depositPaid[m.name]
+                                ? "bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300 hover:bg-green-200 dark:hover:bg-green-800/60"
+                                : "bg-gray-100 dark:bg-gray-700 text-gray-300 dark:text-gray-600 hover:bg-gray-200 dark:hover:bg-gray-600"
+                            }`}
+                          >
+                            {depositPaid[m.name] ? "○" : "×"}
+                          </button>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -571,7 +786,13 @@ export default function CampApp() {
               </div>
 
               <p className="text-xs text-gray-400 dark:text-gray-500">
-                ○ = 参加　× = 不参加　（泊数は「夜」の出席から自動計算されます）
+                ○ = 参加　× = 不参加　（初日の朝食・最終日の夕食は既定で×、泊数は「夜」の出席から自動計算されます。最終日は宿泊しないため夕食を○にしても泊数には数えません）
+              </p>
+              <p className="text-xs text-gray-400 dark:text-gray-500">
+                途中参加などでご飯が不要な日がある人は、「食事開始日」でその人の食事が必要になる日を選んでください（それより前の食事は自動的に×になります。その後も個別のマス目で細かく調整できます）
+              </p>
+              <p className="text-xs text-gray-400 dark:text-gray-500">
+                「前金徴収」を○にした人は、Excel上で当日の徴収額から前金（費用設定で入力した金額）が差し引かれます
               </p>
             </>
           )}
