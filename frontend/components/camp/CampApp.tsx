@@ -271,6 +271,50 @@ export default function CampApp() {
   const pendingTapRef = useRef<{ name: string; date: string; meal: Meal; value: boolean } | null>(null);
   const touchStartPosRef = useRef<{ x: number; y: number } | null>(null);
 
+  // ドラッグ中に画面端へ近づいたら横スクロールを自動追従させる
+  const gridScrollRef = useRef<HTMLDivElement | null>(null);
+  const lastPointerXRef = useRef<number | null>(null);
+  const autoScrollFrameRef = useRef<number | null>(null);
+  const AUTO_SCROLL_EDGE = 56;
+  const AUTO_SCROLL_SPEED = 18;
+
+  const autoScrollTick = useCallback(() => {
+    // ドラッグが終わっていればループを止める。x が一時的にnull(pointermove未発火)でも
+    // ループ自体は止めない(次のフレームでpointermoveが来れば追従できるようにする)
+    if (paintValueRef.current === null) {
+      autoScrollFrameRef.current = null;
+      return;
+    }
+    const container = gridScrollRef.current;
+    const x = lastPointerXRef.current;
+    if (container && x !== null) {
+      const rect = container.getBoundingClientRect();
+      if (x > rect.right - AUTO_SCROLL_EDGE) {
+        const intensity = Math.min(1, (x - (rect.right - AUTO_SCROLL_EDGE)) / AUTO_SCROLL_EDGE);
+        container.scrollLeft += AUTO_SCROLL_SPEED * intensity;
+      } else if (x < rect.left + AUTO_SCROLL_EDGE) {
+        const intensity = Math.min(1, (rect.left + AUTO_SCROLL_EDGE - x) / AUTO_SCROLL_EDGE);
+        container.scrollLeft -= AUTO_SCROLL_SPEED * intensity;
+      }
+    }
+    autoScrollFrameRef.current = requestAnimationFrame(autoScrollTick);
+  }, []);
+
+  const startAutoScroll = useCallback(() => {
+    if (autoScrollFrameRef.current === null) {
+      autoScrollFrameRef.current = requestAnimationFrame(autoScrollTick);
+    }
+  }, [autoScrollTick]);
+
+  const stopAutoScroll = useCallback(() => {
+    if (autoScrollFrameRef.current !== null) {
+      cancelAnimationFrame(autoScrollFrameRef.current);
+      autoScrollFrameRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => stopAutoScroll, [stopAutoScroll]);
+
   const readCellFromElement = useCallback((el: Element | null) => {
     const cell = el?.closest<HTMLElement>("[data-cell='true']");
     if (!cell) return null;
@@ -298,16 +342,20 @@ export default function CampApp() {
       pendingTapRef.current = { ...cell, value };
       longPressTimerRef.current = setTimeout(() => {
         paintValueRef.current = value;
+        lastPointerXRef.current = e.clientX;
         pendingTapRef.current = null;
         setMealValue(cell.name, cell.date, cell.meal, value);
         if (typeof navigator.vibrate === "function") navigator.vibrate(10);
+        startAutoScroll();
       }, 350);
     } else {
       // マウスは即座にドラッグ選択を開始
       paintValueRef.current = value;
+      lastPointerXRef.current = e.clientX;
       setMealValue(cell.name, cell.date, cell.meal, value);
+      startAutoScroll();
     }
-  }, [attendance, readCellFromElement, setMealValue]);
+  }, [attendance, readCellFromElement, setMealValue, startAutoScroll]);
 
   const handleGridPointerMove = useCallback((e: ReactPointerEvent<HTMLTableSectionElement>) => {
     if (longPressTimerRef.current && touchStartPosRef.current) {
@@ -322,6 +370,7 @@ export default function CampApp() {
     }
     if (paintValueRef.current === null) return;
     e.preventDefault();
+    lastPointerXRef.current = e.clientX;
     const cell = readCellFromElement(document.elementFromPoint(e.clientX, e.clientY));
     if (cell) setMealValue(cell.name, cell.date, cell.meal, paintValueRef.current);
   }, [clearLongPressTimer, readCellFromElement, setMealValue]);
@@ -336,7 +385,9 @@ export default function CampApp() {
     pendingTapRef.current = null;
     touchStartPosRef.current = null;
     paintValueRef.current = null;
-  }, [clearLongPressTimer, setMealValue]);
+    lastPointerXRef.current = null;
+    stopAutoScroll();
+  }, [clearLongPressTimer, setMealValue, stopAutoScroll]);
 
   const handleGridPointerCancel = useCallback(() => {
     // ジェスチャーの中断（システムの割り込み等）ではタップ扱いにしない
@@ -344,7 +395,9 @@ export default function CampApp() {
     pendingTapRef.current = null;
     touchStartPosRef.current = null;
     paintValueRef.current = null;
-  }, [clearLongPressTimer]);
+    lastPointerXRef.current = null;
+    stopAutoScroll();
+  }, [clearLongPressTimer, stopAutoScroll]);
 
   const toggleAllMeal = useCallback((date: string, meal: Meal, value: boolean) => {
     setAttendance(prev => {
@@ -680,7 +733,7 @@ export default function CampApp() {
                 </p>
               )}
 
-              <div className="overflow-x-auto rounded-2xl border border-gray-100 dark:border-gray-700">
+              <div ref={gridScrollRef} className="overflow-x-auto rounded-2xl border border-gray-100 dark:border-gray-700">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="bg-gray-50 dark:bg-gray-800 border-b border-gray-100 dark:border-gray-700">

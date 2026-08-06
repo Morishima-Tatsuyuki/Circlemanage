@@ -13,6 +13,16 @@ function parseDow(dateStr: string) {
   const [y, m, d] = dateStr.split("-").map(Number);
   return new Date(y, m - 1, d).getDay();
 }
+function getDatesInRange(start: string, end: string): string[] {
+  const dates: string[] = [];
+  const cur = new Date(start);
+  const last = new Date(end);
+  while (cur <= last) {
+    dates.push(cur.toISOString().slice(0, 10));
+    cur.setDate(cur.getDate() + 1);
+  }
+  return dates;
+}
 
 const WEEKDAYS = ["日", "月", "火", "水", "木", "金", "土"];
 
@@ -55,6 +65,7 @@ export default function MemberCalendarApp() {
     time: "",
     note: "",
     colorHex: EVENT_COLORS[0].hex,
+    until: "", // 連続日程の最終日(未入力ならselectedDateのみに追加)
   });
 
   const daysInMonth = getDaysInMonth(viewYear, viewMonth);
@@ -66,17 +77,31 @@ export default function MemberCalendarApp() {
   const nextMonth = () =>
     viewMonth === 12 ? (setViewYear((y) => y + 1), setViewMonth(1)) : setViewMonth((m) => m + 1);
 
+  const selectDate = (d: string | null) => {
+    setSelectedDate(d);
+    setForm((f) => ({ ...f, until: "" }));
+  };
+
   const handleAdd = () => {
     if (!selectedDate || !form.title.trim()) return;
-    addEvent({
-      date: selectedDate,
-      title: form.title.trim(),
-      time: form.time.trim(),
-      note: form.note.trim(),
-      colorHex: form.colorHex,
+    const endDate = form.until && form.until >= selectedDate ? form.until : selectedDate;
+    const targetDates = getDatesInRange(selectedDate, endDate);
+    targetDates.forEach((d) => {
+      addEvent({
+        date: d,
+        title: form.title.trim(),
+        time: form.time.trim(),
+        note: form.note.trim(),
+        colorHex: form.colorHex,
+      });
     });
-    setForm((f) => ({ ...f, title: "", time: "", note: "" }));
+    setForm((f) => ({ ...f, title: "", time: "", note: "", until: "" }));
   };
+
+  const bulkDateCount =
+    selectedDate && form.until && form.until >= selectedDate
+      ? getDatesInRange(selectedDate, form.until).length
+      : 1;
 
   const selectedEntries = selectedDate ? eventsForDate(selectedDate) : [];
 
@@ -138,7 +163,7 @@ export default function MemberCalendarApp() {
               return (
                 <div
                   key={idx}
-                  onClick={() => isValid && setSelectedDate(isSelected ? null : dateStr)}
+                  onClick={() => isValid && selectDate(isSelected ? null : dateStr)}
                   className={`min-h-[64px] p-1 border-b border-r border-gray-50 dark:border-gray-700/50 transition-colors ${
                     isValid ? "cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/40" : ""
                   } ${isSelected ? "bg-blue-50 dark:bg-blue-900/20" : ""}`}
@@ -207,7 +232,7 @@ export default function MemberCalendarApp() {
                 </span>
               </p>
               <button
-                onClick={() => setSelectedDate(null)}
+                onClick={() => selectDate(null)}
                 className="text-gray-300 dark:text-gray-600 hover:text-gray-500 text-lg leading-none"
               >×</button>
             </div>
@@ -294,12 +319,29 @@ export default function MemberCalendarApp() {
                 onChange={(e) => setForm((f) => ({ ...f, note: e.target.value }))}
                 className="w-full border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 placeholder-gray-300 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-400"
               />
+              <div>
+                <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                  連続日程の最終日（同じ内容を続けて入れる場合のみ）
+                </label>
+                <input
+                  type="date"
+                  min={selectedDate ?? undefined}
+                  value={form.until}
+                  onChange={(e) => setForm((f) => ({ ...f, until: e.target.value }))}
+                  className="w-full border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                />
+                {bulkDateCount > 1 && (
+                  <p className="text-[10px] text-blue-500 dark:text-blue-400 mt-1">
+                    {selectedDate?.replace(/-/g, "/")} 〜 {form.until.replace(/-/g, "/")} の {bulkDateCount}日分、まとめて同じ予定を追加します
+                  </p>
+                )}
+              </div>
               <button
                 onClick={handleAdd}
                 disabled={!form.title.trim()}
                 className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 dark:disabled:bg-blue-900 text-white text-sm font-semibold rounded-lg transition-colors"
               >
-                追加
+                {bulkDateCount > 1 ? `${bulkDateCount}日分まとめて追加` : "追加"}
               </button>
             </div>
           </div>

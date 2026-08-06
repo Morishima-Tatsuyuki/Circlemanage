@@ -7,14 +7,7 @@ import RosterApp from "@/components/roster/RosterApp";
 import CampApp from "@/components/camp/CampApp";
 import MemberCalendarApp from "@/components/member/MemberCalendarApp";
 import PersonalCalendarApp from "@/components/member/PersonalCalendarApp";
-
-const INNER_TABS = [
-  { id: "roster",     label: "名簿" },
-  { id: "schedule",   label: "スケジュール" },
-  { id: "accounting", label: "会計管理" },
-  { id: "camp",       label: "合宿管理" },
-  { id: "stay",       label: "宿泊大会管理" },
-];
+import { TEAM_TABS } from "@/lib/teamTabs";
 
 const STAY_ITEMS = [
   {
@@ -69,7 +62,7 @@ function TeamContent({ onBack, initialTab }: { onBack: () => void; initialTab: s
       </button>
 
       <div className="flex gap-1 bg-gray-100 dark:bg-gray-800 rounded-xl p-1 overflow-x-auto no-scrollbar">
-        {INNER_TABS.map((tab) => (
+        {TEAM_TABS.map((tab) => (
           <button
             key={tab.id}
             onClick={() => handleTabChange(tab.id)}
@@ -134,6 +127,14 @@ function HomeContent() {
   const [view, setView] = useState<"select" | "team" | "personal">(
     paramView === "team" || paramView === "personal" ? paramView : "select"
   );
+
+  // ロゴ/「サークル管理」クリックなど、URLのview paramが外部から変わった場合にも追従させる
+  // (useStateの初期値は初回マウント時にしか評価されないため、レンダー中に検知して同期する)
+  const [syncedParamView, setSyncedParamView] = useState(paramView);
+  if (paramView !== syncedParamView) {
+    setSyncedParamView(paramView);
+    setView(paramView === "team" || paramView === "personal" ? paramView : "select");
+  }
 
   const handleSetView = (v: "select" | "team" | "personal") => {
     setView(v);

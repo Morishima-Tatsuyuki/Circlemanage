@@ -1,8 +1,9 @@
 "use client";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useState } from "react";
 import AuthButton from "@/components/AuthButton";
+import { TEAM_TABS } from "@/lib/teamTabs";
 
 const SunIcon = () => (
   <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
@@ -17,17 +18,73 @@ const MoonIcon = () => (
   </svg>
 );
 
-const TABS = [
-  { id: "stay",       label: "宿泊大会管理", soon: false },
-  { id: "camp",       label: "合宿管理",     soon: true  },
-  { id: "accounting", label: "会計管理",     soon: true  },
-  { id: "schedule",   label: "スケジュール",  soon: true  },
-];
-
 const PAGE_TITLES: Record<string, string> = {
   "/haisha":     "配車",
   "/accounting": "会計",
 };
+
+// メニュー内のナビ項目: 幹部/メンバーに分け、幹部ビューに現在いる場合はその下に
+// タブ一覧を展開する。現在地の判定にuseSearchParamsを使うためSuspense配下に置く。
+function DrawerNav({ onNavigate }: { onNavigate: () => void }) {
+  const pathname = usePathname();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
+  const currentView = pathname === "/" ? searchParams.get("view") : null;
+  const isTeamView = currentView === "team";
+  const currentTab = searchParams.get("tab") ?? "roster";
+
+  const goTo = (href: string) => {
+    router.push(href);
+    onNavigate();
+  };
+
+  return (
+    <nav className="flex-1 px-4 py-6 space-y-1 overflow-y-auto">
+      <button
+        onClick={() => goTo("/?view=team")}
+        className={`w-full flex items-center gap-2.5 px-4 py-3.5 rounded-xl transition-all duration-150 ${
+          isTeamView
+            ? "bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300"
+            : "text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
+        }`}
+      >
+        <span className="text-lg">👑</span>
+        <span className="text-sm font-medium">幹部</span>
+      </button>
+
+      {isTeamView && (
+        <div className="pl-4 space-y-1">
+          {TEAM_TABS.map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => goTo(`/?view=team&tab=${tab.id}`)}
+              className={`w-full flex items-center px-4 py-2.5 rounded-lg text-sm transition-all duration-150 ${
+                currentTab === tab.id
+                  ? "bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 font-medium"
+                  : "text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800"
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      <button
+        onClick={() => goTo("/?view=personal")}
+        className={`w-full flex items-center gap-2.5 px-4 py-3.5 rounded-xl transition-all duration-150 ${
+          currentView === "personal"
+            ? "bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300"
+            : "text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
+        }`}
+      >
+        <span className="text-lg">👤</span>
+        <span className="text-sm font-medium">メンバー</span>
+      </button>
+    </nav>
+  );
+}
 
 export default function Navbar() {
   const pathname = usePathname();
@@ -143,25 +200,9 @@ export default function Navbar() {
             </div>
 
             {/* ナビ項目 */}
-            <nav className="flex-1 px-4 py-6 space-y-1">
-              {TABS.map((tab) => (
-                <button
-                  key={tab.id}
-                  onClick={() => {
-                    router.push(`/?tab=${tab.id}`);
-                    setMenuOpen(false);
-                  }}
-                  className="w-full flex items-center justify-between px-4 py-3.5 rounded-xl text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-all duration-150"
-                >
-                  <span className="text-sm font-medium">{tab.label}</span>
-                  {tab.soon && (
-                    <span className="text-xs text-gray-400 dark:text-gray-500 bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded-full">
-                      Soon
-                    </span>
-                  )}
-                </button>
-              ))}
-            </nav>
+            <Suspense fallback={null}>
+              <DrawerNav onNavigate={() => setMenuOpen(false)} />
+            </Suspense>
 
             {/* ドロワーフッター */}
             <div className="px-6 py-5 border-t border-gray-100 dark:border-gray-800 space-y-3">
