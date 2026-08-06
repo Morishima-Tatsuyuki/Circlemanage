@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { useSession } from "next-auth/react";
 import { useCalendarStore, GOOGLE_CALENDAR_COLORS } from "./useCalendarStore";
 import { useAccountingStore } from "@/components/accounting/useAccountingStore";
 import { INCOME_CATEGORIES, EXPENSE_CATEGORIES, type TransactionType } from "@/components/accounting/types";
@@ -283,7 +282,6 @@ function EventWarikanPanel({ calendarEntryId, eventName, eventDate }: {
 
 // ── メインコンポーネント ─────────────────────────
 export default function CalendarApp() {
-  const { data: session } = useSession();
   const store = useCalendarStore();
   const { eventNames, addEventName, deleteEventName, timeSlots, addTimeSlot, deleteTimeSlot, addEntry, deleteEntry, entriesForDate } = store;
 
@@ -293,7 +291,6 @@ export default function CalendarApp() {
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>("calendar");
   const [form, setForm] = useState({ eventName: eventNames[0] ?? "", timeSlot: timeSlots[0] ?? "", colorId: "7" });
-  const [loading, setLoading] = useState(false);
   const [status, setStatus]   = useState<Status>(null);
   const [newEventName, setNewEventName] = useState("");
   const [newTimeSlot, setNewTimeSlot]   = useState("");
@@ -309,7 +306,7 @@ export default function CalendarApp() {
   const prevMonth = () => viewMonth===1  ? (setViewYear(y=>y-1), setViewMonth(12)) : setViewMonth(m=>m-1);
   const nextMonth = () => viewMonth===12 ? (setViewYear(y=>y+1), setViewMonth(1))  : setViewMonth(m=>m+1);
 
-  const handleAdd = async () => {
+  const handleAdd = () => {
     if (!selectedDate || !safeEventName || !safeTimeSlot) {
       setStatus({ type:"error", message:"日付・イベント名・時間を選択してください" }); return;
     }
@@ -317,44 +314,11 @@ export default function CalendarApp() {
     if (!times) { setStatus({ type:"error", message:"時間の形式が正しくありません" }); return; }
     const entry = { date: selectedDate, eventName: safeEventName, timeSlot: safeTimeSlot, colorId: form.colorId };
 
-    if (session?.access_token) {
-      setLoading(true); setStatus(null);
-      try {
-        const res = await fetch("https://www.googleapis.com/calendar/v3/calendars/primary/events", {
-          method:"POST",
-          headers:{ Authorization:`Bearer ${session.access_token}`, "Content-Type":"application/json" },
-          body: JSON.stringify({
-            summary: safeEventName,
-            start:{ dateTime:`${selectedDate}T${times.start}:00+09:00`, timeZone:"Asia/Tokyo" },
-            end:  { dateTime:`${selectedDate}T${times.end}:00+09:00`,   timeZone:"Asia/Tokyo" },
-            colorId: form.colorId,
-          }),
-        });
-        if (!res.ok) { const e=await res.json(); throw new Error(e.error?.message ?? "APIエラー"); }
-        const gcalEvent = await res.json();
-        addEntry({ ...entry, gcalEventId: gcalEvent.id });
-        setStatus({ type:"success", message:`Googleカレンダーに追加：${safeEventName} (${safeTimeSlot})` });
-        setLoading(false); return;
-      } catch(e: unknown) {
-        setStatus({ type:"error", message:`失敗：${e instanceof Error ? e.message : String(e)}` });
-        setLoading(false); return;
-      }
-    } else {
-      setStatus({ type:"success", message:`追加：${safeEventName} (${safeTimeSlot})` });
-    }
     addEntry(entry);
+    setStatus({ type:"success", message:`追加：${safeEventName} (${safeTimeSlot})` });
   };
 
-  const handleDeleteEntry = async (id: string) => {
-    const entry = store.entries.find((e) => e.id === id);
-    if (entry?.gcalEventId && session?.access_token) {
-      try {
-        await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events/${entry.gcalEventId}`, {
-          method: "DELETE",
-          headers: { Authorization: `Bearer ${session.access_token}` },
-        });
-      } catch { /* 削除失敗でもローカルは消す */ }
-    }
+  const handleDeleteEntry = (id: string) => {
     deleteEntry(id);
     setPendingDeleteId(null);
   };
@@ -365,7 +329,7 @@ export default function CalendarApp() {
     <>
     {pendingDeleteId && (
       <ConfirmDialog
-        message={`このイベントを削除しますか？${session?.access_token ? " Googleカレンダーからも削除されます。" : ""}`}
+        message="このイベントを削除しますか？"
         onConfirm={() => handleDeleteEntry(pendingDeleteId)}
         onCancel={() => setPendingDeleteId(null)}
       />
@@ -386,16 +350,6 @@ export default function CalendarApp() {
           ))}
         </div>
       </div>
-
-      {tab==="calendar" && (session ? (
-        <div className="flex items-center gap-2 px-3 py-2 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-xl text-xs text-green-700 dark:text-green-400">
-          <span>✓</span><span>{session.user?.name} のGoogleカレンダーに追加されます</span>
-        </div>
-      ) : (
-        <div className="flex items-center gap-2 px-3 py-2 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-xl text-xs text-yellow-700 dark:text-yellow-400">
-          <span>⚠</span><span>Googleログインするとカレンダーに自動追加されます</span>
-        </div>
-      ))}
 
       {/* ===== カレンダータブ ===== */}
       {tab==="calendar" && (
@@ -508,21 +462,19 @@ export default function CalendarApp() {
                       onChange={(v) => setForm((f) => ({ ...f, timeSlot: v }))} onAdd={(v) => addTimeSlot(v)} />
                   </div>
                 </div>
-                {session && (
-                  <div>
-                    <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">色</label>
-                    <div className="relative">
-                      <select value={form.colorId} onChange={(e) => setForm((f) => ({ ...f, colorId: e.target.value }))}
-                        className="w-full border border-gray-200 dark:border-gray-600 rounded-lg pl-8 pr-3 py-2 text-sm bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-400 appearance-none">
-                        {GOOGLE_CALENDAR_COLORS.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                      </select>
-                      {selectedColor && <span className="absolute left-3 top-1/2 -translate-y-1/2 w-3 h-3 rounded-full pointer-events-none" style={{ backgroundColor: selectedColor.hex }} />}
-                    </div>
+                <div>
+                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">色</label>
+                  <div className="relative">
+                    <select value={form.colorId} onChange={(e) => setForm((f) => ({ ...f, colorId: e.target.value }))}
+                      className="w-full border border-gray-200 dark:border-gray-600 rounded-lg pl-8 pr-3 py-2 text-sm bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-400 appearance-none">
+                      {GOOGLE_CALENDAR_COLORS.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                    </select>
+                    {selectedColor && <span className="absolute left-3 top-1/2 -translate-y-1/2 w-3 h-3 rounded-full pointer-events-none" style={{ backgroundColor: selectedColor.hex }} />}
                   </div>
-                )}
-                <button onClick={handleAdd} disabled={loading || !eventNames.length || !timeSlots.length}
+                </div>
+                <button onClick={handleAdd} disabled={!eventNames.length || !timeSlots.length}
                   className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white text-sm font-semibold rounded-lg transition-colors">
-                  {loading ? "追加中..." : session ? "Googleカレンダーに追加" : "追加"}
+                  追加
                 </button>
                 {status && (
                   <div className={`px-3 py-2 rounded-lg text-xs ${status.type==="success"?"bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400 border border-green-200 dark:border-green-800":"bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-800"}`}>

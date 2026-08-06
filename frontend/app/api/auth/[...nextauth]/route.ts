@@ -13,8 +13,6 @@ const handler = NextAuth({
             "openid",
             "email",
             "profile",
-            "https://www.googleapis.com/auth/calendar",
-            "https://www.googleapis.com/auth/forms.body",
           ].join(" "),
         },
       },

@@ -51,7 +51,6 @@ export interface CalendarEntry {
   eventName: string;
   timeSlot: string;
   colorId: string;
-  gcalEventId?: string; // Google Calendar イベントID（削除連携用）
 }
 
 export function useCalendarStore() {
