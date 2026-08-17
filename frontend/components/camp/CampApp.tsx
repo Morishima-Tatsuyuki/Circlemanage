@@ -265,6 +265,12 @@ export default function CampApp() {
     });
   }, []);
 
+  // 明示的に出欠が記録されていないマス目は、既定ルール(初日朝食・最終日夕食を除き参加)を表示に反映する
+  const getMealAttendance = useCallback((name: string, date: string, dateIndex: number, meal: Meal): boolean => {
+    const explicit = attendance[name]?.[date]?.[meal];
+    return explicit ?? defaultMealValue(dateIndex, meal, dates.length);
+  }, [attendance, dates.length]);
+
   // 出欠グリッドのドラッグ選択（1マス目の値を、なぞった範囲すべてに適用する）
   const paintValueRef = useRef<boolean | null>(null);
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -333,7 +339,7 @@ export default function CampApp() {
   const handleGridPointerDown = useCallback((e: ReactPointerEvent<HTMLTableSectionElement>) => {
     const cell = readCellFromElement(e.target as Element);
     if (!cell) return;
-    const current = !!attendance[cell.name]?.[cell.date]?.[cell.meal];
+    const current = getMealAttendance(cell.name, cell.date, dates.indexOf(cell.date), cell.meal);
     const value = !current;
 
     if (e.pointerType === "touch") {
@@ -355,7 +361,7 @@ export default function CampApp() {
       setMealValue(cell.name, cell.date, cell.meal, value);
       startAutoScroll();
     }
-  }, [attendance, readCellFromElement, setMealValue, startAutoScroll]);
+  }, [dates, getMealAttendance, readCellFromElement, setMealValue, startAutoScroll]);
 
   const handleGridPointerMove = useCallback((e: ReactPointerEvent<HTMLTableSectionElement>) => {
     if (longPressTimerRef.current && touchStartPosRef.current) {
@@ -414,8 +420,8 @@ export default function CampApp() {
   // 泊数(宿泊費の対象): 最終日は夜に宿泊しないため、最終日の夕食は
   // ○であっても泊数には数えない(食費としては引き続き計算される)
   const nightsCount = useCallback((name: string) => {
-    return dates.reduce((acc, d, i) => acc + (i < dates.length - 1 && attendance[name]?.[d]?.夜 ? 1 : 0), 0);
-  }, [attendance, dates]);
+    return dates.reduce((acc, d, i) => acc + (i < dates.length - 1 && getMealAttendance(name, d, i, "夜") ? 1 : 0), 0);
+  }, [dates, getMealAttendance]);
 
   // 途中参加などでご飯がいらない日がある人向け:
   // 「何日目からご飯が必要か」を指定すると、それより前の日の食事は
@@ -761,18 +767,18 @@ export default function CampApp() {
                       <th rowSpan={2} className="px-3 py-3 text-center text-xs font-medium text-gray-400 dark:text-gray-500 whitespace-nowrap align-bottom border-l border-gray-100 dark:border-gray-700">前金徴収</th>
                     </tr>
                     <tr className="bg-gray-50 dark:bg-gray-800 border-b border-gray-100 dark:border-gray-700">
-                      {dates.map(d => (
+                      {dates.map((d, di) => (
                         MEALS.map(meal => (
                           <th key={`${d}-${meal}`} className="px-1 py-1.5 text-center border-l border-gray-100 dark:border-gray-700">
                             <div className="text-[10px] text-gray-400 dark:text-gray-500">{meal}</div>
                             <button
                               onClick={() => {
-                                const allChecked = members.every(m => attendance[m.name]?.[d]?.[meal]);
+                                const allChecked = members.every(m => getMealAttendance(m.name, d, di, meal));
                                 toggleAllMeal(d, meal, !allChecked);
                               }}
                               className="text-[10px] text-blue-500 hover:text-blue-700 dark:text-blue-400"
                             >
-                              {members.every(m => attendance[m.name]?.[d]?.[meal]) ? "解除" : "選択"}
+                              {members.every(m => getMealAttendance(m.name, d, di, meal)) ? "解除" : "選択"}
                             </button>
                           </th>
                         ))
@@ -807,7 +813,7 @@ export default function CampApp() {
                             ))}
                           </select>
                         </td>
-                        {dates.map(d => (
+                        {dates.map((d, di) => (
                           MEALS.map(meal => (
                             <td key={`${d}-${meal}`} className="px-1 py-2 text-center border-l border-gray-50 dark:border-gray-700/50">
                               <button
@@ -818,12 +824,12 @@ export default function CampApp() {
                                 data-meal={meal}
                                 onDragStart={(e) => e.preventDefault()}
                                 className={`w-7 h-7 rounded-lg text-xs font-medium transition-all ${
-                                  attendance[m.name]?.[d]?.[meal]
+                                  getMealAttendance(m.name, d, di, meal)
                                     ? "bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 hover:bg-blue-200 dark:hover:bg-blue-800/60"
                                     : "bg-gray-100 dark:bg-gray-700 text-gray-300 dark:text-gray-600 hover:bg-gray-200 dark:hover:bg-gray-600"
                                 }`}
                               >
-                                {attendance[m.name]?.[d]?.[meal] ? "○" : "×"}
+                                {getMealAttendance(m.name, d, di, meal) ? "○" : "×"}
                               </button>
                             </td>
                           ))
