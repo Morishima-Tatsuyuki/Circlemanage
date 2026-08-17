@@ -558,9 +558,11 @@ export default function CampApp() {
             <div>
               <label className="block text-xs text-gray-400 dark:text-gray-500 mb-1.5">宿泊費（1人1泊あたり）</label>
               <input
-                type="number"
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
                 value={costSettings.lodgingFee}
-                onChange={e => updateLodgingFee(Number(e.target.value))}
+                onChange={e => updateLodgingFee(Number(e.target.value.replace(/[^0-9]/g, "")) || 0)}
                 className="w-full rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
@@ -568,9 +570,11 @@ export default function CampApp() {
             <div>
               <label className="block text-xs text-gray-400 dark:text-gray-500 mb-1.5">前金（1人あたり）</label>
               <input
-                type="number"
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
                 value={costSettings.depositAmount}
-                onChange={e => updateDepositAmount(Number(e.target.value))}
+                onChange={e => updateDepositAmount(Number(e.target.value.replace(/[^0-9]/g, "")) || 0)}
                 placeholder="例：30000（先に集める前金額。0なら前金なし）"
                 className="w-full rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
@@ -586,9 +590,11 @@ export default function CampApp() {
                   <div key={meal}>
                     <label className="block text-[10px] text-gray-400 dark:text-gray-500 mb-1">{meal}食</label>
                     <input
-                      type="number"
+                      type="text"
+                      inputMode="numeric"
+                      pattern="[0-9]*"
                       value={costSettings.mealPrices[meal]}
-                      onChange={e => updateMealPrice(meal, Number(e.target.value))}
+                      onChange={e => updateMealPrice(meal, Number(e.target.value.replace(/[^0-9]/g, "")) || 0)}
                       className="w-full rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
                   </div>
@@ -610,9 +616,11 @@ export default function CampApp() {
                     ))}
                   </select>
                   <input
-                    type="number"
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
                     value={sp.price}
-                    onChange={e => updateSpecialDinnerPrice(sp.id, { price: Number(e.target.value) })}
+                    onChange={e => updateSpecialDinnerPrice(sp.id, { price: Number(e.target.value.replace(/[^0-9]/g, "")) || 0 })}
                     placeholder="特別単価"
                     className="w-32 rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
@@ -651,9 +659,11 @@ export default function CampApp() {
                     className="flex-1 rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                   <input
-                    type="number"
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
                     value={item.amount}
-                    onChange={e => updateCostItem(i, { amount: Number(e.target.value) })}
+                    onChange={e => updateCostItem(i, { amount: Number(e.target.value.replace(/[^0-9]/g, "")) || 0 })}
                     placeholder="金額"
                     className="w-32 rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
