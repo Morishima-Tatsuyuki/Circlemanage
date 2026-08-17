@@ -561,7 +561,8 @@ export default function CampApp() {
                 type="text"
                 inputMode="numeric"
                 pattern="[0-9]*"
-                value={costSettings.lodgingFee}
+                value={costSettings.lodgingFee === 0 ? "" : costSettings.lodgingFee}
+                placeholder="0"
                 onChange={e => updateLodgingFee(Number(e.target.value.replace(/[^0-9]/g, "")) || 0)}
                 className="w-full rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
@@ -573,9 +574,9 @@ export default function CampApp() {
                 type="text"
                 inputMode="numeric"
                 pattern="[0-9]*"
-                value={costSettings.depositAmount}
+                value={costSettings.depositAmount === 0 ? "" : costSettings.depositAmount}
                 onChange={e => updateDepositAmount(Number(e.target.value.replace(/[^0-9]/g, "")) || 0)}
-                placeholder="例：30000（先に集める前金額。0なら前金なし）"
+                placeholder="0（例：30000）"
                 className="w-full rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
               <p className="text-[10px] text-gray-400 dark:text-gray-500 mt-1">
@@ -593,7 +594,8 @@ export default function CampApp() {
                       type="text"
                       inputMode="numeric"
                       pattern="[0-9]*"
-                      value={costSettings.mealPrices[meal]}
+                      value={costSettings.mealPrices[meal] === 0 ? "" : costSettings.mealPrices[meal]}
+                      placeholder="0"
                       onChange={e => updateMealPrice(meal, Number(e.target.value.replace(/[^0-9]/g, "")) || 0)}
                       className="w-full rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
@@ -619,9 +621,9 @@ export default function CampApp() {
                     type="text"
                     inputMode="numeric"
                     pattern="[0-9]*"
-                    value={sp.price}
+                    value={sp.price === 0 ? "" : sp.price}
                     onChange={e => updateSpecialDinnerPrice(sp.id, { price: Number(e.target.value.replace(/[^0-9]/g, "")) || 0 })}
-                    placeholder="特別単価"
+                    placeholder="0"
                     className="w-32 rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                   <button
@@ -662,9 +664,9 @@ export default function CampApp() {
                     type="text"
                     inputMode="numeric"
                     pattern="[0-9]*"
-                    value={item.amount}
+                    value={item.amount === 0 ? "" : item.amount}
                     onChange={e => updateCostItem(i, { amount: Number(e.target.value.replace(/[^0-9]/g, "")) || 0 })}
-                    placeholder="金額"
+                    placeholder="0"
                     className="w-32 rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                   <button
