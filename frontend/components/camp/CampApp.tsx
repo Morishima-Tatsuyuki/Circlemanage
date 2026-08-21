@@ -2,9 +2,12 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef, type PointerEvent as ReactPointerEvent } from "react";
 import {
-  useCampData, MEALS,
-  type Meal, type CostSettings, type CostItem, type SpecialDinnerPrice,
+  useCampData, MEALS, STAY,
+  type Meal, type DayField, type CostSettings, type CostItem, type SpecialDinnerPrice,
 } from "./useCampData";
+
+// グリッド列の描画専用(食事3種+宿泊)。費用設定の単価入力は引き続きMEALSのみを使う
+const DAY_FIELDS: readonly DayField[] = [...MEALS, STAY];
 import { useRosterMembers } from "../roster/useRosterMembers";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
@@ -34,9 +37,11 @@ function nightsAndDays(start: string, end: string): string {
 
 // 既定の出欠: 基本的に全食参加。ただし初日の朝食と最終日の夕食は
 // (前日入り・翌日退所が普通のため)既定で不参加とする。
-function defaultMealValue(dateIndex: number, meal: Meal, totalDates: number): boolean {
-  if (dateIndex === 0 && meal === "朝") return false;
-  if (totalDates > 0 && dateIndex === totalDates - 1 && meal === "夜") return false;
+// 宿泊は最終日(翌日には泊まらない)を除き既定で参加とする。
+function defaultDayValue(dateIndex: number, field: DayField, totalDates: number): boolean {
+  if (field === STAY) return totalDates > 0 && dateIndex < totalDates - 1;
+  if (dateIndex === 0 && field === "朝") return false;
+  if (totalDates > 0 && dateIndex === totalDates - 1 && field === "夜") return false;
   return true;
 }
 
@@ -47,12 +52,20 @@ export default function CampApp({ groupId }: { groupId: string }) {
     attendance, setAttendance,
     depositPaid, setDepositPaid,
     costSettings, setCostSettings,
+    attending, setAttending,
     flush,
   } = useCampData(groupId);
   const { members } = useRosterMembers(groupId);
   const [saved, setSaved] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState("");
+
+  const isAttending = useCallback((name: string) => attending[name] !== false, [attending]);
+  const setMemberAttending = useCallback((name: string, value: boolean) => {
+    setAttending(prev => ({ ...prev, [name]: value }));
+  }, [setAttending]);
+  const attendingMembers = useMemo(() => members.filter(m => isAttending(m.name)), [members, isAttending]);
+  const nonAttendingMembers = useMemo(() => members.filter(m => !isAttending(m.name)), [members, isAttending]);
 
   const dates = useMemo(
     () => (period.start && period.end ? getDatesInRange(period.start, period.end) : []),
@@ -124,9 +137,10 @@ export default function CampApp({ groupId }: { groupId: string }) {
         dates.forEach((d, i) => {
           const prevMeal = prev[m.name]?.[d];
           next[m.name][d] = {
-            朝: prevMeal?.朝 ?? defaultMealValue(i, "朝", dates.length),
-            昼: prevMeal?.昼 ?? defaultMealValue(i, "昼", dates.length),
-            夜: prevMeal?.夜 ?? defaultMealValue(i, "夜", dates.length),
+            朝: prevMeal?.朝 ?? defaultDayValue(i, "朝", dates.length),
+            昼: prevMeal?.昼 ?? defaultDayValue(i, "昼", dates.length),
+            夜: prevMeal?.夜 ?? defaultDayValue(i, "夜", dates.length),
+            宿泊: prevMeal?.宿泊 ?? defaultDayValue(i, STAY, dates.length),
           };
         });
       }
@@ -137,16 +151,16 @@ export default function CampApp({ groupId }: { groupId: string }) {
     setSection("roster");
   };
 
-  const setMealValue = useCallback((name: string, date: string, meal: Meal, value: boolean) => {
+  const setMealValue = useCallback((name: string, date: string, field: DayField, value: boolean) => {
     setAttendance(prev => {
       const prevMember = prev[name] ?? {};
-      const prevDate = prevMember[date] ?? { 朝: false, 昼: false, 夜: false };
-      if (prevDate[meal] === value) return prev;
+      const prevDate = prevMember[date] ?? { 朝: false, 昼: false, 夜: false, 宿泊: false };
+      if (prevDate[field] === value) return prev;
       return {
         ...prev,
         [name]: {
           ...prevMember,
-          [date]: { ...prevDate, [meal]: value },
+          [date]: { ...prevDate, [field]: value },
         },
       };
     });
@@ -156,16 +170,16 @@ export default function CampApp({ groupId }: { groupId: string }) {
     setDepositPaid(prev => ({ ...prev, [name]: !prev[name] }));
   }, [setDepositPaid]);
 
-  // 明示的に出欠が記録されていないマス目は、既定ルール(初日朝食・最終日夕食を除き参加)を表示に反映する
-  const getMealAttendance = useCallback((name: string, date: string, dateIndex: number, meal: Meal): boolean => {
-    const explicit = attendance[name]?.[date]?.[meal];
-    return explicit ?? defaultMealValue(dateIndex, meal, dates.length);
+  // 明示的に出欠が記録されていないマス目は、既定ルール(初日朝食・最終日夕食・最終日宿泊を除き参加)を表示に反映する
+  const getMealAttendance = useCallback((name: string, date: string, dateIndex: number, field: DayField): boolean => {
+    const explicit = attendance[name]?.[date]?.[field];
+    return explicit ?? defaultDayValue(dateIndex, field, dates.length);
   }, [attendance, dates.length]);
 
   // 出欠グリッドのドラッグ選択（1マス目の値を、なぞった範囲すべてに適用する）
   const paintValueRef = useRef<boolean | null>(null);
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pendingTapRef = useRef<{ name: string; date: string; meal: Meal; value: boolean } | null>(null);
+  const pendingTapRef = useRef<{ name: string; date: string; meal: DayField; value: boolean } | null>(null);
   const touchStartPosRef = useRef<{ x: number; y: number } | null>(null);
 
   // ドラッグ中に画面端へ近づいたら横スクロールを自動追従させる
@@ -217,7 +231,7 @@ export default function CampApp({ groupId }: { groupId: string }) {
     if (!cell) return null;
     const { name, date, meal } = cell.dataset;
     if (!name || !date || !meal) return null;
-    return { name, date, meal: meal as Meal };
+    return { name, date, meal: meal as DayField };
   }, []);
 
   const clearLongPressTimer = useCallback(() => {
@@ -296,21 +310,20 @@ export default function CampApp({ groupId }: { groupId: string }) {
     stopAutoScroll();
   }, [clearLongPressTimer, stopAutoScroll]);
 
-  const toggleAllMeal = useCallback((date: string, meal: Meal, value: boolean) => {
+  const toggleAllMeal = useCallback((date: string, field: DayField, value: boolean) => {
     setAttendance(prev => {
       const next = { ...prev };
       for (const name of Object.keys(next)) {
-        const prevDate = next[name][date] ?? { 朝: false, 昼: false, 夜: false };
-        next[name] = { ...next[name], [date]: { ...prevDate, [meal]: value } };
+        const prevDate = next[name][date] ?? { 朝: false, 昼: false, 夜: false, 宿泊: false };
+        next[name] = { ...next[name], [date]: { ...prevDate, [field]: value } };
       }
       return next;
     });
   }, [setAttendance]);
 
-  // 泊数(宿泊費の対象): 最終日は夜に宿泊しないため、最終日の夕食は
-  // ○であっても泊数には数えない(食費としては引き続き計算される)
+  // 泊数(宿泊費の対象): 「宿泊」マスの○の数をそのまま数える
   const nightsCount = useCallback((name: string) => {
-    return dates.reduce((acc, d, i) => acc + (i < dates.length - 1 && getMealAttendance(name, d, i, "夜") ? 1 : 0), 0);
+    return dates.reduce((acc, d, i) => acc + (getMealAttendance(name, d, i, STAY) ? 1 : 0), 0);
   }, [dates, getMealAttendance]);
 
   // 途中参加などでご飯がいらない日がある人向け:
@@ -327,14 +340,15 @@ export default function CampApp({ groupId }: { groupId: string }) {
   const applyMealStartDay = useCallback((name: string, startIndex: number) => {
     setAttendance(prev => {
       const prevMember = prev[name] ?? {};
-      const nextMember: Record<string, Record<Meal, boolean>> = { ...prevMember };
+      const nextMember = { ...prevMember };
       dates.forEach((d, i) => {
         nextMember[d] = i < startIndex
-          ? { 朝: false, 昼: false, 夜: false }
+          ? { 朝: false, 昼: false, 夜: false, 宿泊: false }
           : {
-              朝: defaultMealValue(i, "朝", dates.length),
-              昼: defaultMealValue(i, "昼", dates.length),
-              夜: defaultMealValue(i, "夜", dates.length),
+              朝: defaultDayValue(i, "朝", dates.length),
+              昼: defaultDayValue(i, "昼", dates.length),
+              夜: defaultDayValue(i, "夜", dates.length),
+              宿泊: defaultDayValue(i, STAY, dates.length),
             };
       });
       return { ...prev, [name]: nextMember };
@@ -360,6 +374,7 @@ export default function CampApp({ groupId }: { groupId: string }) {
           deposit_amount: costSettings.depositAmount,
           deposit_paid: Object.fromEntries(members.map(m => [m.name, !!depositPaid[m.name]])),
           cost_items: costSettings.items,
+          attending: Object.fromEntries(members.map(m => [m.name, isAttending(m.name)])),
         }),
       });
       if (!res.ok) throw new Error(await res.text());
@@ -640,119 +655,190 @@ export default function CampApp({ groupId }: { groupId: string }) {
                 </p>
               )}
 
-              <div ref={gridScrollRef} className="overflow-x-auto rounded-2xl border border-gray-100 dark:border-gray-700">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="bg-gray-50 dark:bg-gray-800 border-b border-gray-100 dark:border-gray-700">
-                      <th rowSpan={2} className="text-left px-4 py-3 font-medium text-xs text-gray-400 dark:text-gray-500 whitespace-nowrap align-bottom">学年</th>
-                      <th rowSpan={2} className="text-left px-4 py-3 font-medium text-xs text-gray-400 dark:text-gray-500 whitespace-nowrap align-bottom">名前</th>
-                      <th rowSpan={2} className="px-2 py-3 text-center text-xs font-medium text-gray-400 dark:text-gray-500 whitespace-nowrap align-bottom border-l border-gray-100 dark:border-gray-700">食事開始日</th>
-                      {dates.map(d => (
-                        <th key={d} colSpan={MEALS.length} className="px-2 py-2 text-center text-xs font-medium text-gray-500 dark:text-gray-400 whitespace-nowrap border-l border-gray-100 dark:border-gray-700">
-                          {formatDateLabel(d)}
-                        </th>
-                      ))}
-                      <th rowSpan={2} className="px-3 py-3 text-center text-xs font-medium text-gray-400 dark:text-gray-500 whitespace-nowrap align-bottom border-l border-gray-100 dark:border-gray-700">泊数</th>
-                      <th rowSpan={2} className="px-3 py-3 text-center text-xs font-medium text-gray-400 dark:text-gray-500 whitespace-nowrap align-bottom border-l border-gray-100 dark:border-gray-700">前金徴収</th>
-                    </tr>
-                    <tr className="bg-gray-50 dark:bg-gray-800 border-b border-gray-100 dark:border-gray-700">
-                      {dates.map((d, di) => (
-                        MEALS.map(meal => (
-                          <th key={`${d}-${meal}`} className="px-1 py-1.5 text-center border-l border-gray-100 dark:border-gray-700">
-                            <div className="text-[10px] text-gray-400 dark:text-gray-500">{meal}</div>
-                            <button
-                              onClick={() => {
-                                const allChecked = members.every(m => getMealAttendance(m.name, d, di, meal));
-                                toggleAllMeal(d, meal, !allChecked);
-                              }}
-                              className="text-[10px] text-blue-500 hover:text-blue-700 dark:text-blue-400"
-                            >
-                              {members.every(m => getMealAttendance(m.name, d, di, meal)) ? "解除" : "選択"}
-                            </button>
+              {attendingMembers.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-16 text-center border border-gray-100 dark:border-gray-700 rounded-2xl">
+                  <p className="text-sm text-gray-400 dark:text-gray-500">
+                    参加者がいません（全員「不参加」に設定されています）
+                  </p>
+                </div>
+              ) : (
+                <div ref={gridScrollRef} className="overflow-x-auto rounded-2xl border border-gray-100 dark:border-gray-700">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="bg-gray-50 dark:bg-gray-800 border-b border-gray-100 dark:border-gray-700">
+                        <th rowSpan={2} className="text-left px-4 py-3 font-medium text-xs text-gray-400 dark:text-gray-500 whitespace-nowrap align-bottom">学年</th>
+                        <th rowSpan={2} className="text-left px-4 py-3 font-medium text-xs text-gray-400 dark:text-gray-500 whitespace-nowrap align-bottom">名前</th>
+                        <th rowSpan={2} className="px-2 py-3 text-center text-xs font-medium text-gray-400 dark:text-gray-500 whitespace-nowrap align-bottom border-l border-gray-100 dark:border-gray-700">参加</th>
+                        <th rowSpan={2} className="px-2 py-3 text-center text-xs font-medium text-gray-400 dark:text-gray-500 whitespace-nowrap align-bottom border-l border-gray-100 dark:border-gray-700">食事開始日</th>
+                        {dates.map(d => (
+                          <th key={d} colSpan={DAY_FIELDS.length} className="px-2 py-2 text-center text-xs font-medium text-gray-500 dark:text-gray-400 whitespace-nowrap border-l border-gray-100 dark:border-gray-700">
+                            {formatDateLabel(d)}
                           </th>
-                        ))
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody
-                    className="bg-white dark:bg-gray-800 touch-none select-none"
-                    onPointerDown={handleGridPointerDown}
-                    onPointerMove={handleGridPointerMove}
-                    onPointerUp={handleGridPointerUp}
-                    onPointerCancel={handleGridPointerCancel}
-                    onPointerLeave={handleGridPointerCancel}
-                  >
-                    {members.map((m, i) => (
-                      <tr
-                        key={i}
-                        className="border-b border-gray-50 dark:border-gray-700/50 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors"
-                      >
-                        <td className="px-4 py-3 text-gray-500 dark:text-gray-400 whitespace-nowrap">{m.grade}</td>
-                        <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200 whitespace-nowrap">{m.name}</td>
-                        <td className="px-2 py-2 text-center border-l border-gray-50 dark:border-gray-700/50">
-                          <select
-                            value={getMealStartIndex(m.name)}
-                            onChange={e => applyMealStartDay(m.name, Number(e.target.value))}
-                            className="text-xs rounded-md border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-gray-600 dark:text-gray-300 px-1.5 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          >
-                            {dates.map((d, i) => (
-                              <option key={d} value={i}>
-                                {i === 0 ? "通常(初日から)" : `${formatDateLabel(d)}(${i + 1}日目)から`}
-                              </option>
-                            ))}
-                          </select>
-                        </td>
+                        ))}
+                        <th rowSpan={2} className="px-3 py-3 text-center text-xs font-medium text-gray-400 dark:text-gray-500 whitespace-nowrap align-bottom border-l border-gray-100 dark:border-gray-700">泊数</th>
+                        <th rowSpan={2} className="px-3 py-3 text-center text-xs font-medium text-gray-400 dark:text-gray-500 whitespace-nowrap align-bottom border-l border-gray-100 dark:border-gray-700">前金徴収</th>
+                      </tr>
+                      <tr className="bg-gray-50 dark:bg-gray-800 border-b border-gray-100 dark:border-gray-700">
                         {dates.map((d, di) => (
-                          MEALS.map(meal => (
-                            <td key={`${d}-${meal}`} className="px-1 py-2 text-center border-l border-gray-50 dark:border-gray-700/50">
+                          DAY_FIELDS.map(field => (
+                            <th key={`${d}-${field}`} className="px-1 py-1.5 text-center border-l border-gray-100 dark:border-gray-700">
+                              <div className="text-[10px] text-gray-400 dark:text-gray-500">{field}</div>
                               <button
-                                type="button"
-                                data-cell="true"
-                                data-name={m.name}
-                                data-date={d}
-                                data-meal={meal}
-                                onDragStart={(e) => e.preventDefault()}
-                                className={`w-7 h-7 rounded-lg text-xs font-medium transition-all ${
-                                  getMealAttendance(m.name, d, di, meal)
-                                    ? "bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 hover:bg-blue-200 dark:hover:bg-blue-800/60"
-                                    : "bg-gray-100 dark:bg-gray-700 text-gray-300 dark:text-gray-600 hover:bg-gray-200 dark:hover:bg-gray-600"
-                                }`}
+                                onClick={() => {
+                                  const allChecked = attendingMembers.every(m => getMealAttendance(m.name, d, di, field));
+                                  toggleAllMeal(d, field, !allChecked);
+                                }}
+                                className="text-[10px] text-blue-500 hover:text-blue-700 dark:text-blue-400"
                               >
-                                {getMealAttendance(m.name, d, di, meal) ? "○" : "×"}
+                                {attendingMembers.every(m => getMealAttendance(m.name, d, di, field)) ? "解除" : "選択"}
                               </button>
-                            </td>
+                            </th>
                           ))
                         ))}
-                        <td className="px-3 py-3 text-center text-gray-500 dark:text-gray-400 border-l border-gray-50 dark:border-gray-700/50">
-                          {nightsCount(m.name)}
-                        </td>
-                        <td className="px-3 py-2 text-center border-l border-gray-50 dark:border-gray-700/50">
-                          <button
-                            type="button"
-                            onClick={() => toggleDeposit(m.name)}
-                            className={`w-7 h-7 rounded-lg text-xs font-medium transition-all ${
-                              depositPaid[m.name]
-                                ? "bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300 hover:bg-green-200 dark:hover:bg-green-800/60"
-                                : "bg-gray-100 dark:bg-gray-700 text-gray-300 dark:text-gray-600 hover:bg-gray-200 dark:hover:bg-gray-600"
-                            }`}
-                          >
-                            {depositPaid[m.name] ? "○" : "×"}
-                          </button>
-                        </td>
                       </tr>
+                    </thead>
+                    <tbody
+                      className="bg-white dark:bg-gray-800 touch-none select-none"
+                      onPointerDown={handleGridPointerDown}
+                      onPointerMove={handleGridPointerMove}
+                      onPointerUp={handleGridPointerUp}
+                      onPointerCancel={handleGridPointerCancel}
+                      onPointerLeave={handleGridPointerCancel}
+                    >
+                      {attendingMembers.map((m, i) => (
+                        <tr
+                          key={i}
+                          className="border-b border-gray-50 dark:border-gray-700/50 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors"
+                        >
+                          <td className="px-4 py-3 text-gray-500 dark:text-gray-400 whitespace-nowrap">{m.grade}</td>
+                          <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200 whitespace-nowrap">{m.name}</td>
+                          <td className="px-2 py-2 text-center border-l border-gray-50 dark:border-gray-700/50">
+                            <select
+                              value="参加"
+                              onChange={e => setMemberAttending(m.name, e.target.value === "参加")}
+                              className="text-xs rounded-md border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-gray-600 dark:text-gray-300 px-1.5 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            >
+                              <option value="参加">参加</option>
+                              <option value="不参加">不参加</option>
+                            </select>
+                          </td>
+                          <td className="px-2 py-2 text-center border-l border-gray-50 dark:border-gray-700/50">
+                            <select
+                              value={getMealStartIndex(m.name)}
+                              onChange={e => applyMealStartDay(m.name, Number(e.target.value))}
+                              className="text-xs rounded-md border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-gray-600 dark:text-gray-300 px-1.5 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            >
+                              {dates.map((d, i) => (
+                                <option key={d} value={i}>
+                                  {i === 0 ? "通常(初日から)" : `${formatDateLabel(d)}(${i + 1}日目)から`}
+                                </option>
+                              ))}
+                            </select>
+                          </td>
+                          {dates.map((d, di) => (
+                            DAY_FIELDS.map(field => (
+                              <td key={`${d}-${field}`} className="px-1 py-2 text-center border-l border-gray-50 dark:border-gray-700/50">
+                                <button
+                                  type="button"
+                                  data-cell="true"
+                                  data-name={m.name}
+                                  data-date={d}
+                                  data-meal={field}
+                                  onDragStart={(e) => e.preventDefault()}
+                                  className={`w-7 h-7 rounded-lg text-xs font-medium transition-all ${
+                                    getMealAttendance(m.name, d, di, field)
+                                      ? "bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 hover:bg-blue-200 dark:hover:bg-blue-800/60"
+                                      : "bg-gray-100 dark:bg-gray-700 text-gray-300 dark:text-gray-600 hover:bg-gray-200 dark:hover:bg-gray-600"
+                                  }`}
+                                >
+                                  {getMealAttendance(m.name, d, di, field) ? "○" : "×"}
+                                </button>
+                              </td>
+                            ))
+                          ))}
+                          <td className="px-3 py-3 text-center text-gray-500 dark:text-gray-400 border-l border-gray-50 dark:border-gray-700/50">
+                            {nightsCount(m.name)}
+                          </td>
+                          <td className="px-3 py-2 text-center border-l border-gray-50 dark:border-gray-700/50">
+                            <button
+                              type="button"
+                              onClick={() => toggleDeposit(m.name)}
+                              className={`w-7 h-7 rounded-lg text-xs font-medium transition-all ${
+                                depositPaid[m.name]
+                                  ? "bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300 hover:bg-green-200 dark:hover:bg-green-800/60"
+                                  : "bg-gray-100 dark:bg-gray-700 text-gray-300 dark:text-gray-600 hover:bg-gray-200 dark:hover:bg-gray-600"
+                              }`}
+                            >
+                              {depositPaid[m.name] ? "○" : "×"}
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr className="bg-gray-50 dark:bg-gray-800 border-t-2 border-gray-200 dark:border-gray-600 font-semibold">
+                        <td colSpan={2} className="px-4 py-2.5 text-xs text-gray-500 dark:text-gray-400">合計</td>
+                        <td className="border-l border-gray-100 dark:border-gray-700" />
+                        <td className="border-l border-gray-100 dark:border-gray-700" />
+                        {dates.map((d, di) => (
+                          DAY_FIELDS.map(field => {
+                            const count = attendingMembers.reduce(
+                              (acc, m) => acc + (getMealAttendance(m.name, d, di, field) ? 1 : 0), 0
+                            );
+                            return (
+                              <td key={`${d}-${field}-total`} className="px-1 py-2.5 text-center text-xs text-gray-600 dark:text-gray-300 border-l border-gray-100 dark:border-gray-700">
+                                {count}
+                              </td>
+                            );
+                          })
+                        ))}
+                        <td className="px-3 py-2.5 text-center text-xs text-gray-600 dark:text-gray-300 border-l border-gray-100 dark:border-gray-700">
+                          {attendingMembers.reduce((acc, m) => acc + nightsCount(m.name), 0)}
+                        </td>
+                        <td className="border-l border-gray-100 dark:border-gray-700" />
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              )}
+
+              {nonAttendingMembers.length > 0 && (
+                <div className="rounded-2xl border border-gray-100 dark:border-gray-700 overflow-hidden">
+                  <p className="px-4 py-2.5 text-xs font-medium text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-800 border-b border-gray-100 dark:border-gray-700">
+                    不参加のメンバー（{nonAttendingMembers.length}）
+                  </p>
+                  <div className="divide-y divide-gray-50 dark:divide-gray-700/50">
+                    {nonAttendingMembers.map((m, i) => (
+                      <div key={i} className="flex items-center justify-between px-4 py-2.5">
+                        <span className="text-sm text-gray-500 dark:text-gray-400">
+                          <span className="text-xs text-gray-400 dark:text-gray-500 mr-2">{m.grade}</span>
+                          {m.name}
+                        </span>
+                        <select
+                          value="不参加"
+                          onChange={e => setMemberAttending(m.name, e.target.value === "参加")}
+                          className="text-xs rounded-md border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-gray-600 dark:text-gray-300 px-1.5 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        >
+                          <option value="参加">参加</option>
+                          <option value="不参加">不参加</option>
+                        </select>
+                      </div>
                     ))}
-                  </tbody>
-                </table>
-              </div>
+                  </div>
+                </div>
+              )}
 
               <p className="text-xs text-gray-400 dark:text-gray-500">
-                ○ = 参加　× = 不参加　（初日の朝食・最終日の夕食は既定で×、泊数は「夜」の出席から自動計算されます。最終日は宿泊しないため夕食を○にしても泊数には数えません）
+                ○ = 参加　× = 不参加　（初日の朝食・最終日の夕食・最終日の宿泊は既定で×、泊数は「宿泊」列の○の数から自動計算されます）
               </p>
               <p className="text-xs text-gray-400 dark:text-gray-500">
-                途中参加などでご飯が不要な日がある人は、「食事開始日」でその人の食事が必要になる日を選んでください（それより前の食事は自動的に×になります。その後も個別のマス目で細かく調整できます）
+                途中参加などでご飯が不要な日がある人は、「食事開始日」でその人の食事が必要になる日を選んでください（それより前の食事・宿泊は自動的に×になります。その後も個別のマス目で細かく調整できます）
               </p>
               <p className="text-xs text-gray-400 dark:text-gray-500">
                 「前金徴収」を○にした人は、Excel上で当日の徴収額から前金（費用設定で入力した金額）が差し引かれます
+              </p>
+              <p className="text-xs text-gray-400 dark:text-gray-500">
+                「参加」を「不参加」にするとこの名簿から除外されます（名簿タブの登録自体は消えません）。Excel出力でも参加者と不参加者が自動的に分けて出力されます
               </p>
             </>
           )}

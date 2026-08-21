@@ -11,7 +11,7 @@ const ACTIVE_GROUP_KEY = "active_group_id";
 export default function GroupGate({
   children,
 }: {
-  children: (groupId: string, ctx: { groups: Group[]; switchGroup: (id: string) => void }) => ReactNode;
+  children: (groupId: string, ctx: { groups: Group[]; switchGroup: (id: string) => void; refresh: () => Promise<void> }) => ReactNode;
 }) {
   const { status } = useSession();
   const { groups, loading, refresh } = useMyGroups();
@@ -61,5 +61,5 @@ export default function GroupGate({
 
   if (!activeId) return null;
 
-  return <>{children(activeId, { groups, switchGroup })}</>;
+  return <>{children(activeId, { groups, switchGroup, refresh })}</>;
 }

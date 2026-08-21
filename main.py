@@ -151,6 +151,8 @@ def init_db():
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+            # 合宿への参加/不参加(氏名->参加するか)。既存テーブルにも追加できるよう冪等に。
+            cur.execute("ALTER TABLE camp_data ADD COLUMN IF NOT EXISTS attending JSONB NOT NULL DEFAULT '{}'::jsonb")
         conn.commit()
         conn.close()
         logger.info("DBテーブルの初期化完了")
@@ -290,6 +292,7 @@ class CampRosterExportRequest(BaseModel):
     deposit_amount: float = 0  # 前金(1人あたり、先に集める金額)
     deposit_paid: Dict[str, bool] = {}  # 氏名 -> 前金を徴収済みか
     cost_items: List[CampCostItem] = []
+    attending: Dict[str, bool] = {}  # 氏名 -> 合宿に参加するか(未指定は参加扱い)
 
 class CostMember(BaseModel):
     name: str
@@ -339,6 +342,7 @@ class CampDataIn(BaseModel):
     attendance: Dict[str, Dict[str, Dict[str, bool]]] = {}
     deposit_paid: Dict[str, bool] = {}
     cost_settings: dict = {}
+    attending: Dict[str, bool] = {}
 
 class CostConfig(BaseModel):
     members: List[CostMember]
@@ -660,18 +664,18 @@ async def get_camp_data(group_id: int, user: dict = Depends(require_membership))
     try:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT period_start, period_end, attendance, deposit_paid, cost_settings FROM camp_data WHERE group_id = %s",
+                "SELECT period_start, period_end, attendance, deposit_paid, cost_settings, attending FROM camp_data WHERE group_id = %s",
                 (group_id,)
             )
             row = cur.fetchone()
         if not row:
             return {
                 "period_start": "", "period_end": "",
-                "attendance": {}, "deposit_paid": {}, "cost_settings": {}
+                "attendance": {}, "deposit_paid": {}, "cost_settings": {}, "attending": {}
             }
         return {
             "period_start": row[0], "period_end": row[1],
-            "attendance": row[2], "deposit_paid": row[3], "cost_settings": row[4]
+            "attendance": row[2], "deposit_paid": row[3], "cost_settings": row[4], "attending": row[5]
         }
     except Exception as e:
         logger.error(f"合宿データ取得エラー: {e}")
@@ -686,18 +690,19 @@ async def upsert_camp_data(group_id: int, data: CampDataIn, user: dict = Depends
         with conn.cursor() as cur:
             cur.execute(
                 """
-                INSERT INTO camp_data (group_id, period_start, period_end, attendance, deposit_paid, cost_settings, updated_at)
-                VALUES (%s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
+                INSERT INTO camp_data (group_id, period_start, period_end, attendance, deposit_paid, cost_settings, attending, updated_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
                 ON CONFLICT (group_id) DO UPDATE SET
                     period_start = EXCLUDED.period_start,
                     period_end = EXCLUDED.period_end,
                     attendance = EXCLUDED.attendance,
                     deposit_paid = EXCLUDED.deposit_paid,
                     cost_settings = EXCLUDED.cost_settings,
+                    attending = EXCLUDED.attending,
                     updated_at = CURRENT_TIMESTAMP
                 """,
                 (group_id, data.period_start, data.period_end,
-                 Json(data.attendance), Json(data.deposit_paid), Json(data.cost_settings))
+                 Json(data.attendance), Json(data.deposit_paid), Json(data.cost_settings), Json(data.attending))
             )
         conn.commit()
         return {"ok": True}
@@ -1311,6 +1316,8 @@ async def create_form(config: FormConfig):
 # 関数付きで出力する。
 # ==========================================
 CAMP_MEALS = ["朝", "昼", "夜"]
+CAMP_STAY = "宿泊"
+CAMP_DAY_FIELDS = CAMP_MEALS + [CAMP_STAY]  # 名簿シートの日付ごとの列レイアウト(食事3種+宿泊)
 
 def _camp_date_label(iso: str) -> str:
     try:
@@ -1332,7 +1339,10 @@ async def export_camp_roster(data: CampRosterExportRequest):
     border = Border(left=thin, right=thin, top=thin, bottom=thin)
     center = Alignment(horizontal="center", vertical="center")
 
-    n_members = len(data.members)
+    attending_members = [m for m in data.members if data.attending.get(m.name, True)]
+    not_attending_members = [m for m in data.members if not data.attending.get(m.name, True)]
+
+    n_members = len(attending_members)
     roster_start_row = 4  # 名簿シートのデータ開始行(ヘッダー3行: 日付/食事名/単価 の下)
     roster_last_row = roster_start_row + max(n_members, 1) - 1
 
@@ -1426,7 +1436,7 @@ async def export_camp_roster(data: CampRosterExportRequest):
     col_name = 2
     meal_start_col = 3
     n_dates = len(data.dates)
-    col_nights = meal_start_col + n_dates * len(CAMP_MEALS)
+    col_nights = meal_start_col + n_dates * len(CAMP_DAY_FIELDS)
     col_fee = col_nights + 1
     col_deposit = col_fee + 1
     col_balance = col_deposit + 1
@@ -1447,21 +1457,23 @@ async def export_camp_roster(data: CampRosterExportRequest):
     ws.merge_cells(start_row=1, start_column=col_balance, end_row=3, end_column=col_balance)
 
     for i, iso in enumerate(data.dates):
-        base_col = meal_start_col + i * len(CAMP_MEALS)
+        base_col = meal_start_col + i * len(CAMP_DAY_FIELDS)
         ws.cell(row=1, column=base_col, value=_camp_date_label(iso))
-        ws.merge_cells(start_row=1, start_column=base_col, end_row=1, end_column=base_col + len(CAMP_MEALS) - 1)
-        for j, meal in enumerate(CAMP_MEALS):
-            ws.cell(row=2, column=base_col + j, value=meal)
-            # 単価行: BBQ等の特別日はその夕食単価を、それ以外は通常単価(合宿全体費用シート)を参照する
+        ws.merge_cells(start_row=1, start_column=base_col, end_row=1, end_column=base_col + len(CAMP_DAY_FIELDS) - 1)
+        for j, field in enumerate(CAMP_DAY_FIELDS):
+            ws.cell(row=2, column=base_col + j, value=field)
             price_cell = ws.cell(row=3, column=base_col + j)
-            if meal == "夜" and iso in special_price_row_by_date:
-                price_cell.value = f"=合宿全体費用!$B${special_price_row_by_date[iso]}"
-            else:
-                price_cell.value = f"=合宿全体費用!$B${meal_price_row_by_meal[meal]}"
-            price_cell.font = calc_font
             price_cell.alignment = center
             price_cell.border = border
-            price_cell.number_format = "#,##0"
+            if field in meal_price_row_by_meal:
+                # 単価行: BBQ等の特別日はその夕食単価を、それ以外は通常単価(合宿全体費用シート)を参照する
+                if field == "夜" and iso in special_price_row_by_date:
+                    price_cell.value = f"=合宿全体費用!$B${special_price_row_by_date[iso]}"
+                else:
+                    price_cell.value = f"=合宿全体費用!$B${meal_price_row_by_meal[field]}"
+                price_cell.font = calc_font
+                price_cell.number_format = "#,##0"
+            # 宿泊列には単価が無い(宿泊費は人数×泊数で別途計算)ため空欄のままにする
 
     for col in range(1, col_balance + 1):
         for r in (1, 2):
@@ -1478,28 +1490,26 @@ async def export_camp_roster(data: CampRosterExportRequest):
         cell.alignment = center
         cell.border = border
 
-    for i, member in enumerate(data.members):
+    for i, member in enumerate(attending_members):
         r = roster_start_row + i
         ws.cell(row=r, column=col_grade, value=member.grade).border = border
         ws.cell(row=r, column=col_name, value=member.name).border = border
 
-        dinner_coords = []
+        stay_coords = []
         member_att = data.attendance.get(member.name) or {}
         for d_i, iso in enumerate(data.dates):
-            base_col = meal_start_col + d_i * len(CAMP_MEALS)
+            base_col = meal_start_col + d_i * len(CAMP_DAY_FIELDS)
             date_att = member_att.get(iso) or {}
-            for m_i, meal in enumerate(CAMP_MEALS):
-                mark = "○" if date_att.get(meal) else "×"
+            for m_i, field in enumerate(CAMP_DAY_FIELDS):
+                mark = "○" if date_att.get(field) else "×"
                 cell = ws.cell(row=r, column=base_col + m_i, value=mark)
                 cell.alignment = center
                 cell.border = border
                 cell.fill = input_fill
-                # 泊数(宿泊費の対象): 最終日は夜に宿泊しないため、最終日の夕食は
-                # ○であっても泊数には数えない(食費としては引き続き計算される)
-                if meal == "夜" and d_i < n_dates - 1:
-                    dinner_coords.append(cell.coordinate)
+                if field == CAMP_STAY:
+                    stay_coords.append(cell.coordinate)
 
-        nights_formula = "=" + "+".join(f'COUNTIF({c},"○")' for c in dinner_coords) if dinner_coords else "=0"
+        nights_formula = "=" + "+".join(f'COUNTIF({c},"○")' for c in stay_coords) if stay_coords else "=0"
         nights_cell = ws.cell(row=r, column=col_nights, value=nights_formula)
         nights_cell.font = calc_font
         nights_cell.alignment = center
@@ -1540,6 +1550,47 @@ async def export_camp_roster(data: CampRosterExportRequest):
         balance_cell.alignment = center
         balance_cell.border = border
         balance_cell.number_format = "#,##0"
+
+    # ==================================================
+    # 合計行: 日付ごとの食事人数・宿泊人数、泊数/徴収金額/残額の総計を自動集計する
+    # (これまでユーザーが手作業で下に数式を組んでいた部分)
+    # ==================================================
+    total_label_row = roster_last_row + 2
+    ws.cell(row=total_label_row, column=col_name, value="合計")
+    for col in range(meal_start_col, col_nights):
+        col_letter = get_column_letter(col)
+        cell = ws.cell(
+            row=total_label_row, column=col,
+            value=f'=COUNTIF({col_letter}{roster_start_row}:{col_letter}{roster_last_row},"○")'
+        )
+        cell.alignment = center
+    for col in (col_nights, col_fee, col_balance):
+        col_letter = get_column_letter(col)
+        cell = ws.cell(
+            row=total_label_row, column=col,
+            value=f"=SUM({col_letter}{roster_start_row}:{col_letter}{roster_last_row})"
+        )
+        cell.alignment = center
+        if col in (col_fee, col_balance):
+            cell.number_format = "#,##0"
+    for col in range(1, col_balance + 1):
+        cell = ws.cell(row=total_label_row, column=col)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.border = border
+        if cell.alignment.horizontal is None:
+            cell.alignment = center
+
+    # ==================================================
+    # 不参加者一覧(合宿費用の対象外。学年・氏名のみの簡易リスト)
+    # ==================================================
+    if not_attending_members:
+        na_header_row = total_label_row + 2
+        ws.cell(row=na_header_row, column=col_grade, value="不参加者（費用対象外）").font = header_font
+        for i, member in enumerate(not_attending_members):
+            r = na_header_row + 1 + i
+            ws.cell(row=r, column=col_grade, value=member.grade).border = border
+            ws.cell(row=r, column=col_name, value=member.name).border = border
 
     ws.column_dimensions[get_column_letter(col_grade)].width = 8
     ws.column_dimensions[get_column_letter(col_name)].width = 14

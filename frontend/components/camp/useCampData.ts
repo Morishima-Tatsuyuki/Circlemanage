@@ -7,13 +7,21 @@ import { apiGet, apiPut } from "@/lib/apiClient";
 export const MEALS = ["朝", "昼", "夜"] as const;
 export type Meal = (typeof MEALS)[number];
 
+// 食事とは別枠で管理する宿泊(その夜泊まるか)。夕食の出欠とは独立して立てられる
+export const STAY = "宿泊" as const;
+export type DayField = Meal | typeof STAY;
+
 export type Period = { start: string; end: string };
 
-// 氏名 -> 日付 -> 食事 -> 参加有無
-export type Attendance = Record<string, Record<string, Record<Meal, boolean>>>;
+// 氏名 -> 日付 -> 食事/宿泊 -> 参加有無
+export type DayAttendance = Record<Meal, boolean> & { 宿泊: boolean };
+export type Attendance = Record<string, Record<string, DayAttendance>>;
 
 // 氏名 -> 前金を徴収済みか
 export type DepositPaid = Record<string, boolean>;
+
+// 氏名 -> 合宿に参加するか(未指定は参加扱い)
+export type Attending = Record<string, boolean>;
 
 export type CostItem = { label: string; amount: number };
 
@@ -50,6 +58,7 @@ type ApiCampData = {
   attendance: Attendance;
   deposit_paid: DepositPaid;
   cost_settings: Partial<CostSettings>;
+  attending: Attending;
 };
 
 export function useCampData(groupId: string) {
@@ -58,6 +67,7 @@ export function useCampData(groupId: string) {
   const [attendance, setAttendance] = useState<Attendance>({});
   const [depositPaid, setDepositPaid] = useState<DepositPaid>({});
   const [costSettings, setCostSettings] = useState<CostSettings>(DEFAULT_COST_SETTINGS);
+  const [attending, setAttending] = useState<Attending>({});
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
@@ -75,6 +85,7 @@ export function useCampData(groupId: string) {
           mealPrices: { ...DEFAULT_COST_SETTINGS.mealPrices, ...(data.cost_settings?.mealPrices || {}) },
           specialDinnerPrices: data.cost_settings?.specialDinnerPrices || [],
         });
+        setAttending(data.attending || {});
       })
       .catch(() => {})
       .finally(() => { if (!cancelled) setLoaded(true); });
@@ -82,18 +93,19 @@ export function useCampData(groupId: string) {
   }, [groupId, session]);
 
   // flush()時点の最新値を参照するため、レンダーごとに更新するrefに逃がす
-  const latestRef = useRef({ period, attendance, depositPaid, costSettings });
-  latestRef.current = { period, attendance, depositPaid, costSettings };
+  const latestRef = useRef({ period, attendance, depositPaid, costSettings, attending });
+  latestRef.current = { period, attendance, depositPaid, costSettings, attending };
 
   const flush = useCallback(async () => {
     if (!groupId || !session) return;
-    const { period, attendance, depositPaid, costSettings } = latestRef.current;
+    const { period, attendance, depositPaid, costSettings, attending } = latestRef.current;
     await apiPut(`/groups/${groupId}/camp`, {
       period_start: period.start,
       period_end: period.end,
       attendance,
       deposit_paid: depositPaid,
       cost_settings: costSettings,
+      attending,
     }, session);
   }, [groupId, session]);
 
@@ -103,7 +115,7 @@ export function useCampData(groupId: string) {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => { flush(); }, 500);
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
-  }, [period, attendance, depositPaid, costSettings, loaded, flush]);
+  }, [period, attendance, depositPaid, costSettings, attending, loaded, flush]);
 
   // アンマウント時に保留中の変更を必ず反映する
   useEffect(() => {
@@ -116,6 +128,7 @@ export function useCampData(groupId: string) {
     attendance, setAttendance,
     depositPaid, setDepositPaid,
     costSettings, setCostSettings,
+    attending, setAttending,
     loaded, flush,
   };
 }

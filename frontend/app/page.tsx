@@ -8,6 +8,7 @@ import CampApp from "@/components/camp/CampApp";
 import MemberCalendarApp from "@/components/member/MemberCalendarApp";
 import PersonalCalendarApp from "@/components/member/PersonalCalendarApp";
 import GroupGate from "@/components/group/GroupGate";
+import GroupManagerTab from "@/components/group/GroupManagerTab";
 import { TEAM_TABS } from "@/lib/teamTabs";
 import type { Group } from "@/lib/useGroups";
 
@@ -42,7 +43,21 @@ function ComingSoon({ label }: { label: string }) {
   );
 }
 
-function TeamContent({ onBack, initialTab, groupId }: { onBack: () => void; initialTab: string; groupId: string }) {
+function TeamContent({
+  onBack,
+  initialTab,
+  groupId,
+  groups,
+  switchGroup,
+  refreshGroups,
+}: {
+  onBack: () => void;
+  initialTab: string;
+  groupId: string;
+  groups: Group[];
+  switchGroup: (id: string) => void;
+  refreshGroups: () => Promise<void>;
+}) {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState(initialTab);
 
@@ -114,6 +129,14 @@ function TeamContent({ onBack, initialTab, groupId }: { onBack: () => void; init
         {activeTab === "schedule"   && <MemberCalendarApp groupId={groupId} />}
         {activeTab === "accounting" && <ComingSoon label="会計管理" />}
         {activeTab === "camp"       && <CampApp groupId={groupId} />}
+        {activeTab === "group"      && (
+          <GroupManagerTab
+            groupId={groupId}
+            groups={groups}
+            switchGroup={switchGroup}
+            onGroupsChanged={refreshGroups}
+          />
+        )}
       </div>
     </div>
   );
@@ -123,10 +146,12 @@ function HomeContent({
   groupId,
   groups,
   switchGroup,
+  refreshGroups,
 }: {
   groupId: string;
   groups: Group[];
   switchGroup: (id: string) => void;
+  refreshGroups: () => Promise<void>;
 }) {
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -161,6 +186,9 @@ function HomeContent({
         onBack={() => handleSetView("select")}
         initialTab={paramTab}
         groupId={groupId}
+        groups={groups}
+        switchGroup={switchGroup}
+        refreshGroups={refreshGroups}
       />
     );
   }
@@ -236,8 +264,8 @@ export default function HomePage() {
   return (
     <Suspense>
       <GroupGate>
-        {(groupId, { groups, switchGroup }) => (
-          <HomeContent groupId={groupId} groups={groups} switchGroup={switchGroup} />
+        {(groupId, { groups, switchGroup, refresh }) => (
+          <HomeContent groupId={groupId} groups={groups} switchGroup={switchGroup} refreshGroups={refresh} />
         )}
       </GroupGate>
     </Suspense>
