@@ -3,10 +3,8 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
-import { useMyGroups, type Group } from "@/lib/useGroups";
+import { useMyGroups, ACTIVE_GROUP_KEY, type Group } from "@/lib/useGroups";
 import GroupOnboarding from "./GroupOnboarding";
-
-const ACTIVE_GROUP_KEY = "active_group_id";
 
 export default function GroupGate({
   children,

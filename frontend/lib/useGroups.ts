@@ -10,6 +10,10 @@ export type Group = {
   invite_code: string;
 };
 
+// 現在選択中のグループID。GroupGate(ページ本体)とNavbar(チーム切替UI)の
+// 両方から参照するため、ここで一元管理する。
+export const ACTIVE_GROUP_KEY = "active_group_id";
+
 export function useMyGroups() {
   const { data: session, status } = useSession();
   const [groups, setGroups] = useState<Group[]>([]);

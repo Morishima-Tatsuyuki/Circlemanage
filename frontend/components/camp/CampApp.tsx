@@ -65,7 +65,6 @@ export default function CampApp({ groupId }: { groupId: string }) {
     setAttending(prev => ({ ...prev, [name]: value }));
   }, [setAttending]);
   const attendingMembers = useMemo(() => members.filter(m => isAttending(m.name)), [members, isAttending]);
-  const nonAttendingMembers = useMemo(() => members.filter(m => !isAttending(m.name)), [members, isAttending]);
 
   const dates = useMemo(
     () => (period.start && period.end ? getDatesInRange(period.start, period.end) : []),
@@ -655,14 +654,7 @@ export default function CampApp({ groupId }: { groupId: string }) {
                 </p>
               )}
 
-              {attendingMembers.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-16 text-center border border-gray-100 dark:border-gray-700 rounded-2xl">
-                  <p className="text-sm text-gray-400 dark:text-gray-500">
-                    参加者がいません（全員「不参加」に設定されています）
-                  </p>
-                </div>
-              ) : (
-                <div ref={gridScrollRef} className="overflow-x-auto rounded-2xl border border-gray-100 dark:border-gray-700">
+              <div ref={gridScrollRef} className="overflow-x-auto rounded-2xl border border-gray-100 dark:border-gray-700">
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="bg-gray-50 dark:bg-gray-800 border-b border-gray-100 dark:border-gray-700">
@@ -685,12 +677,12 @@ export default function CampApp({ groupId }: { groupId: string }) {
                               <div className="text-[10px] text-gray-400 dark:text-gray-500">{field}</div>
                               <button
                                 onClick={() => {
-                                  const allChecked = attendingMembers.every(m => getMealAttendance(m.name, d, di, field));
+                                  const allChecked = members.every(m => getMealAttendance(m.name, d, di, field));
                                   toggleAllMeal(d, field, !allChecked);
                                 }}
                                 className="text-[10px] text-blue-500 hover:text-blue-700 dark:text-blue-400"
                               >
-                                {attendingMembers.every(m => getMealAttendance(m.name, d, di, field)) ? "解除" : "選択"}
+                                {members.every(m => getMealAttendance(m.name, d, di, field)) ? "解除" : "選択"}
                               </button>
                             </th>
                           ))
@@ -705,16 +697,18 @@ export default function CampApp({ groupId }: { groupId: string }) {
                       onPointerCancel={handleGridPointerCancel}
                       onPointerLeave={handleGridPointerCancel}
                     >
-                      {attendingMembers.map((m, i) => (
+                      {members.map((m, i) => (
                         <tr
                           key={i}
-                          className="border-b border-gray-50 dark:border-gray-700/50 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors"
+                          className={`border-b border-gray-50 dark:border-gray-700/50 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors ${
+                            isAttending(m.name) ? "" : "opacity-50"
+                          }`}
                         >
                           <td className="px-4 py-3 text-gray-500 dark:text-gray-400 whitespace-nowrap">{m.grade}</td>
                           <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200 whitespace-nowrap">{m.name}</td>
                           <td className="px-2 py-2 text-center border-l border-gray-50 dark:border-gray-700/50">
                             <select
-                              value="参加"
+                              value={isAttending(m.name) ? "参加" : "不参加"}
                               onChange={e => setMemberAttending(m.name, e.target.value === "参加")}
                               className="text-xs rounded-md border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-gray-600 dark:text-gray-300 px-1.5 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500"
                             >
@@ -800,33 +794,6 @@ export default function CampApp({ groupId }: { groupId: string }) {
                     </tfoot>
                   </table>
                 </div>
-              )}
-
-              {nonAttendingMembers.length > 0 && (
-                <div className="rounded-2xl border border-gray-100 dark:border-gray-700 overflow-hidden">
-                  <p className="px-4 py-2.5 text-xs font-medium text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-800 border-b border-gray-100 dark:border-gray-700">
-                    不参加のメンバー（{nonAttendingMembers.length}）
-                  </p>
-                  <div className="divide-y divide-gray-50 dark:divide-gray-700/50">
-                    {nonAttendingMembers.map((m, i) => (
-                      <div key={i} className="flex items-center justify-between px-4 py-2.5">
-                        <span className="text-sm text-gray-500 dark:text-gray-400">
-                          <span className="text-xs text-gray-400 dark:text-gray-500 mr-2">{m.grade}</span>
-                          {m.name}
-                        </span>
-                        <select
-                          value="不参加"
-                          onChange={e => setMemberAttending(m.name, e.target.value === "参加")}
-                          className="text-xs rounded-md border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-gray-600 dark:text-gray-300 px-1.5 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        >
-                          <option value="参加">参加</option>
-                          <option value="不参加">不参加</option>
-                        </select>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
 
               <p className="text-xs text-gray-400 dark:text-gray-500">
                 ○ = 参加　× = 不参加　（初日の朝食・最終日の夕食・最終日の宿泊は既定で×、泊数は「宿泊」列の○の数から自動計算されます）
@@ -838,7 +805,7 @@ export default function CampApp({ groupId }: { groupId: string }) {
                 「前金徴収」を○にした人は、Excel上で当日の徴収額から前金（費用設定で入力した金額）が差し引かれます
               </p>
               <p className="text-xs text-gray-400 dark:text-gray-500">
-                「参加」を「不参加」にするとこの名簿から除外されます（名簿タブの登録自体は消えません）。Excel出力でも参加者と不参加者が自動的に分けて出力されます
+                「参加」を「不参加」にすると行が薄く表示され、その日のご飯数・宿泊数の集計やExcel出力の対象から外れます（一覧からは消えません。名簿タブの登録自体も消えません）。Excel出力では参加者と不参加者が自動的に分けて出力されます
               </p>
             </>
           )}

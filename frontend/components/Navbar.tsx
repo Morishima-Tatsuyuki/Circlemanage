@@ -4,6 +4,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 import AuthButton from "@/components/AuthButton";
 import { TEAM_TABS } from "@/lib/teamTabs";
+import { useMyGroups, ACTIVE_GROUP_KEY } from "@/lib/useGroups";
 
 const SunIcon = () => (
   <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
@@ -23,6 +24,62 @@ const PAGE_TITLES: Record<string, string> = {
   "/accounting": "会計",
 };
 
+// ハンバーガーメニューの最上部に常時表示するチーム切替。ページ(GroupGate)を
+// 経由せずどの画面からでもチームを切り替えられるようにするため、
+// useMyGroupsを直接呼んでlocalStorageのactive_group_idを更新する。
+function TeamSwitcher({ onNavigate }: { onNavigate: () => void }) {
+  const { groups, loading } = useMyGroups();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const [activeId, setActiveId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (loading || groups.length === 0) return;
+    const paramId = searchParams.get("groupId");
+    const stored = typeof window !== "undefined" ? localStorage.getItem(ACTIVE_GROUP_KEY) : null;
+    const candidate = paramId || stored;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setActiveId(candidate && groups.some((g) => String(g.id) === candidate) ? candidate : String(groups[0].id));
+  }, [loading, groups, searchParams]);
+
+  if (loading || groups.length === 0) return null;
+
+  const switchGroup = (id: string) => {
+    try { localStorage.setItem(ACTIVE_GROUP_KEY, id); } catch {}
+    router.push(`/?groupId=${id}`);
+    onNavigate();
+  };
+
+  return (
+    <div className="mb-3 pb-3 border-b border-gray-100 dark:border-gray-800">
+      <p className="px-4 pb-1.5 text-xs font-medium text-gray-400 dark:text-gray-500">チーム</p>
+      {groups.map((g) => {
+        const isActive = String(g.id) === activeId;
+        return (
+          <button
+            key={g.id}
+            onClick={() => (isActive ? onNavigate() : switchGroup(String(g.id)))}
+            className={`w-full flex items-center justify-between gap-2 px-4 py-2.5 rounded-lg text-sm transition-all duration-150 ${
+              isActive
+                ? "bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 font-medium"
+                : "text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
+            }`}
+          >
+            <span className="truncate">{g.name}</span>
+            {isActive && <span className="flex-shrink-0 text-[10px] text-blue-500 dark:text-blue-400">選択中</span>}
+          </button>
+        );
+      })}
+      <button
+        onClick={() => { router.push("/?view=team&tab=group"); onNavigate(); }}
+        className="w-full text-left px-4 pt-2 text-xs text-blue-600 dark:text-blue-400 hover:underline"
+      >
+        + チームを作成・招待コードで参加
+      </button>
+    </div>
+  );
+}
+
 // メニュー内のナビ項目: 幹部/メンバーに分け、幹部ビューに現在いる場合はその下に
 // タブ一覧を展開する。現在地の判定にuseSearchParamsを使うためSuspense配下に置く。
 function DrawerNav({ onNavigate }: { onNavigate: () => void }) {
@@ -41,6 +98,7 @@ function DrawerNav({ onNavigate }: { onNavigate: () => void }) {
 
   return (
     <nav className="flex-1 px-4 py-6 space-y-1 overflow-y-auto">
+      <TeamSwitcher onNavigate={onNavigate} />
       <button
         onClick={() => goTo("/?view=team")}
         className={`w-full flex items-center gap-2.5 px-4 py-3.5 rounded-xl transition-all duration-150 ${
