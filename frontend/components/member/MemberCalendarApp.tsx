@@ -52,8 +52,8 @@ function ConfirmDialog({ onConfirm, onCancel }: { onConfirm: () => void; onCance
   );
 }
 
-export default function MemberCalendarApp() {
-  const { addEvent, deleteEvent, eventsForDate } = useMemberCalendarStore();
+export default function MemberCalendarApp({ groupId }: { groupId: string }) {
+  const { addEvent, deleteEvent, eventsForDate } = useMemberCalendarStore(groupId);
 
   const today = todayStr();
   const [viewYear, setViewYear]   = useState(new Date().getFullYear());
@@ -82,19 +82,19 @@ export default function MemberCalendarApp() {
     setForm((f) => ({ ...f, until: "" }));
   };
 
-  const handleAdd = () => {
+  const handleAdd = async () => {
     if (!selectedDate || !form.title.trim()) return;
     const endDate = form.until && form.until >= selectedDate ? form.until : selectedDate;
     const targetDates = getDatesInRange(selectedDate, endDate);
-    targetDates.forEach((d) => {
-      addEvent({
+    for (const d of targetDates) {
+      await addEvent({
         date: d,
         title: form.title.trim(),
         time: form.time.trim(),
         note: form.note.trim(),
         colorHex: form.colorHex,
       });
-    });
+    }
     setForm((f) => ({ ...f, title: "", time: "", note: "", until: "" }));
   };
 

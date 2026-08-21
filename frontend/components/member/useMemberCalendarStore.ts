@@ -1,27 +1,8 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-
-function useLocalStorage<T>(key: string, initial: T) {
-  const [value, setValue] = useState<T>(initial);
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem(key);
-      if (raw) setValue(JSON.parse(raw));
-    } catch {}
-  }, [key]);
-  const set = useCallback(
-    (v: T | ((prev: T) => T)) => {
-      setValue((prev) => {
-        const next = typeof v === "function" ? (v as (p: T) => T)(prev) : v;
-        localStorage.setItem(key, JSON.stringify(next));
-        return next;
-      });
-    },
-    [key]
-  );
-  return [value, set] as const;
-}
+import { useSession } from "next-auth/react";
+import { apiGet, apiPost, apiDelete } from "@/lib/apiClient";
 
 export interface MemberEvent {
   id: string;
@@ -30,6 +11,19 @@ export interface MemberEvent {
   time: string;  // "" or "HH:MM~HH:MM"
   note: string;
   colorHex: string;
+}
+
+type ApiScheduleEvent = {
+  id: number;
+  date: string;
+  title: string;
+  time: string;
+  note: string;
+  color_hex: string;
+};
+
+function fromApi(e: ApiScheduleEvent): MemberEvent {
+  return { id: String(e.id), date: e.date, title: e.title, time: e.time, note: e.note, colorHex: e.color_hex };
 }
 
 export const EVENT_COLORS = [
@@ -41,24 +35,34 @@ export const EVENT_COLORS = [
   { hex: "#EAB308", name: "イエロー" },
 ];
 
-export function useMemberCalendarStore() {
-  const [events, setEvents] = useLocalStorage<MemberEvent[]>(
-    "team_calendar_events",
-    []
-  );
+export function useMemberCalendarStore(groupId: string) {
+  const { data: session } = useSession();
+  const [events, setEvents] = useState<MemberEvent[]>([]);
 
-  const addEvent = (ev: Omit<MemberEvent, "id">): string => {
-    const id = crypto.randomUUID();
-    setEvents((prev) => [...prev, { ...ev, id }]);
-    return id;
-  };
+  useEffect(() => {
+    if (!groupId || !session) return;
+    let cancelled = false;
+    apiGet<ApiScheduleEvent[]>(`/groups/${groupId}/schedule`, session)
+      .then((data) => { if (!cancelled) setEvents(data.map(fromApi)); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [groupId, session]);
 
-  const deleteEvent = (id: string) => {
+  const addEvent = useCallback(async (ev: Omit<MemberEvent, "id">): Promise<string> => {
+    const created = await apiPost<ApiScheduleEvent>(`/groups/${groupId}/schedule`, {
+      date: ev.date, title: ev.title, time: ev.time, note: ev.note, color_hex: ev.colorHex,
+    }, session);
+    const mapped = fromApi(created);
+    setEvents((prev) => [...prev, mapped]);
+    return mapped.id;
+  }, [groupId, session]);
+
+  const deleteEvent = useCallback((id: string) => {
     setEvents((prev) => prev.filter((e) => e.id !== id));
-  };
+    apiDelete(`/groups/${groupId}/schedule/${id}`, session).catch(() => {});
+  }, [groupId, session]);
 
-  const eventsForDate = (date: string) =>
-    events.filter((e) => e.date === date);
+  const eventsForDate = useCallback((date: string) => events.filter((e) => e.date === date), [events]);
 
   return { events, addEvent, deleteEvent, eventsForDate };
 }

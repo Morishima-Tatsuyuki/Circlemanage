@@ -7,7 +7,9 @@ import RosterApp from "@/components/roster/RosterApp";
 import CampApp from "@/components/camp/CampApp";
 import MemberCalendarApp from "@/components/member/MemberCalendarApp";
 import PersonalCalendarApp from "@/components/member/PersonalCalendarApp";
+import GroupGate from "@/components/group/GroupGate";
 import { TEAM_TABS } from "@/lib/teamTabs";
+import type { Group } from "@/lib/useGroups";
 
 const STAY_ITEMS = [
   {
@@ -40,7 +42,7 @@ function ComingSoon({ label }: { label: string }) {
   );
 }
 
-function TeamContent({ onBack, initialTab }: { onBack: () => void; initialTab: string }) {
+function TeamContent({ onBack, initialTab, groupId }: { onBack: () => void; initialTab: string; groupId: string }) {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState(initialTab);
 
@@ -108,16 +110,24 @@ function TeamContent({ onBack, initialTab }: { onBack: () => void; initialTab: s
             ))}
           </div>
         )}
-        {activeTab === "roster"     && <RosterApp />}
-        {activeTab === "schedule"   && <MemberCalendarApp />}
+        {activeTab === "roster"     && <RosterApp groupId={groupId} />}
+        {activeTab === "schedule"   && <MemberCalendarApp groupId={groupId} />}
         {activeTab === "accounting" && <ComingSoon label="会計管理" />}
-        {activeTab === "camp"       && <CampApp />}
+        {activeTab === "camp"       && <CampApp groupId={groupId} />}
       </div>
     </div>
   );
 }
 
-function HomeContent() {
+function HomeContent({
+  groupId,
+  groups,
+  switchGroup,
+}: {
+  groupId: string;
+  groups: Group[];
+  switchGroup: (id: string) => void;
+}) {
   const searchParams = useSearchParams();
   const router = useRouter();
 
@@ -150,6 +160,7 @@ function HomeContent() {
       <TeamContent
         onBack={() => handleSetView("select")}
         initialTab={paramTab}
+        groupId={groupId}
       />
     );
   }
@@ -166,7 +177,7 @@ function HomeContent() {
           </svg>
           選択に戻る
         </button>
-        <PersonalCalendarApp />
+        <PersonalCalendarApp groupId={groupId} />
       </div>
     );
   }
@@ -176,6 +187,20 @@ function HomeContent() {
       <div className="pt-4">
         <p className="text-2xl font-bold text-gray-800 dark:text-gray-100">こんにちは</p>
         <p className="text-sm text-gray-400 dark:text-gray-500 mt-1">今日も運営を楽にしよう</p>
+        {groups.length > 1 && (
+          <div className="flex items-center gap-2 mt-3">
+            <span className="text-xs text-gray-400 dark:text-gray-500">グループ:</span>
+            <select
+              value={groupId}
+              onChange={(e) => switchGroup(e.target.value)}
+              className="text-sm border border-gray-200 dark:border-gray-600 rounded-lg px-2 py-1 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200"
+            >
+              {groups.map((g) => (
+                <option key={g.id} value={String(g.id)}>{g.name}</option>
+              ))}
+            </select>
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-2 gap-4">
@@ -210,7 +235,11 @@ function HomeContent() {
 export default function HomePage() {
   return (
     <Suspense>
-      <HomeContent />
+      <GroupGate>
+        {(groupId, { groups, switchGroup }) => (
+          <HomeContent groupId={groupId} groups={groups} switchGroup={switchGroup} />
+        )}
+      </GroupGate>
     </Suspense>
   );
 }

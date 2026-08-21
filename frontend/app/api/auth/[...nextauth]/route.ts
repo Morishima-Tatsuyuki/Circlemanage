@@ -1,6 +1,7 @@
 import NextAuth from "next-auth";
 import GoogleProvider from "next-auth/providers/google";
 import CredentialsProvider from "next-auth/providers/credentials";
+import { signBackendJwt } from "@/lib/backendJwt";
 
 const handler = NextAuth({
   providers: [
@@ -40,14 +41,41 @@ const handler = NextAuth({
     signIn: "/login",
   },
   callbacks: {
-    async jwt({ token, account }) {
+    async jwt({ token, account, user }) {
       if (account?.access_token) {
         token.access_token = account.access_token as string;
+      }
+      if (user) {
+        if (account?.provider === "google") {
+          try {
+            const res = await fetch(`${process.env.BACKEND_URL}/auth/oauth-upsert`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ email: user.email, name: user.name }),
+            });
+            if (res.ok) {
+              const data = await res.json();
+              token.userId = Number(data.id);
+            }
+          } catch {
+            // バックエンド未起動時などはbackendTokenが発行されないだけで、
+            // Google側のログイン自体は継続させる
+          }
+        } else {
+          token.userId = Number(user.id);
+        }
       }
       return token;
     },
     async session({ session, token }) {
       session.access_token = token.access_token as string | undefined;
+      if (token.userId) {
+        session.userId = token.userId as number;
+        session.backendToken = await signBackendJwt({
+          sub: String(token.userId),
+          email: session.user?.email ?? undefined,
+        });
+      }
       return session;
     },
   },

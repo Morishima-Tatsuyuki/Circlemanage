@@ -43,8 +43,8 @@ function ConfirmDialog({ onConfirm, onCancel }: { onConfirm: () => void; onCance
   );
 }
 
-export default function PersonalCalendarApp() {
-  const { eventsForDate: teamEventsForDate } = useMemberCalendarStore();
+export default function PersonalCalendarApp({ groupId }: { groupId: string }) {
+  const { eventsForDate: teamEventsForDate } = useMemberCalendarStore(groupId);
   const { addEvent, deleteEvent, eventsForDate: personalEventsForDate } = usePersonalCalendarStore();
 
   const today = todayStr();

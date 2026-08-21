@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Header, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -11,12 +11,16 @@ import json
 import time
 import logging
 import requests
+import secrets
+import string
+import jwt as pyjwt
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from urllib.parse import quote
 from dotenv import load_dotenv
 
 import psycopg2
+from psycopg2.extras import Json
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
@@ -44,6 +48,9 @@ POSTGRES_PORT = int(os.environ.get("POSTGRES_PORT", "5432"))
 POSTGRES_USER = os.environ.get("POSTGRES_USER", "user")
 POSTGRES_PASSWORD = os.environ.get("POSTGRES_PASSWORD", "password")
 POSTGRES_DB = os.environ.get("POSTGRES_DB", "circledb")
+
+BACKEND_JWT_SECRET = os.environ.get("BACKEND_JWT_SECRET", "")
+INVITE_CODE_ALPHABET = "".join(c for c in string.ascii_uppercase + string.digits if c not in "0O1IL")
 
 def get_db_connection():
     return psycopg2.connect(
@@ -78,6 +85,70 @@ def init_db():
                     password_hash VARCHAR(255) NOT NULL,
                     name VARCHAR(255) NOT NULL,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            # Google OAuthユーザーはパスワードを持たないため NOT NULL を解除(冪等)
+            cur.execute("""
+                DO $$
+                BEGIN
+                    IF EXISTS (
+                        SELECT 1 FROM information_schema.columns
+                        WHERE table_name = 'users' AND column_name = 'password_hash' AND is_nullable = 'NO'
+                    ) THEN
+                        ALTER TABLE users ALTER COLUMN password_hash DROP NOT NULL;
+                    END IF;
+                END $$;
+            """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS groups (
+                    id SERIAL PRIMARY KEY,
+                    name VARCHAR(255) NOT NULL,
+                    invite_code VARCHAR(12) UNIQUE NOT NULL,
+                    created_by INTEGER REFERENCES users(id),
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS group_memberships (
+                    group_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+                    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (group_id, user_id)
+                )
+            """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS roster_members (
+                    id SERIAL PRIMARY KEY,
+                    group_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+                    grade VARCHAR(20) NOT NULL DEFAULT '',
+                    name VARCHAR(255) NOT NULL,
+                    student_id VARCHAR(50) NOT NULL DEFAULT '',
+                    birth_date VARCHAR(20) NOT NULL DEFAULT ''
+                )
+            """)
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_roster_members_group ON roster_members(group_id)")
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS schedule_events (
+                    id SERIAL PRIMARY KEY,
+                    group_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+                    date VARCHAR(10) NOT NULL,
+                    title VARCHAR(255) NOT NULL,
+                    time VARCHAR(20) NOT NULL DEFAULT '',
+                    note TEXT NOT NULL DEFAULT '',
+                    color_hex VARCHAR(9) NOT NULL DEFAULT '#3B82F6',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_schedule_events_group_date ON schedule_events(group_id, date)")
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS camp_data (
+                    group_id INTEGER PRIMARY KEY REFERENCES groups(id) ON DELETE CASCADE,
+                    period_start VARCHAR(10) NOT NULL DEFAULT '',
+                    period_end VARCHAR(10) NOT NULL DEFAULT '',
+                    attendance JSONB NOT NULL DEFAULT '{}'::jsonb,
+                    deposit_paid JSONB NOT NULL DEFAULT '{}'::jsonb,
+                    cost_settings JSONB NOT NULL DEFAULT '{}'::jsonb,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
         conn.commit()
@@ -236,6 +307,39 @@ class UserVerify(BaseModel):
     email: str
     password: str
 
+class OAuthUpsert(BaseModel):
+    email: str
+    name: str
+
+class GroupCreate(BaseModel):
+    name: str
+
+class GroupJoin(BaseModel):
+    invite_code: str
+
+class RosterMemberIn(BaseModel):
+    grade: str = ""
+    name: str
+    student_id: str = ""
+    birth_date: str = ""
+
+class RosterReplace(BaseModel):
+    members: List[RosterMemberIn]
+
+class ScheduleEventIn(BaseModel):
+    date: str
+    title: str
+    time: str = ""
+    note: str = ""
+    color_hex: str = "#3B82F6"
+
+class CampDataIn(BaseModel):
+    period_start: str = ""
+    period_end: str = ""
+    attendance: Dict[str, Dict[str, Dict[str, bool]]] = {}
+    deposit_paid: Dict[str, bool] = {}
+    cost_settings: dict = {}
+
 class CostConfig(BaseModel):
     members: List[CostMember]
     participate: int = 11500
@@ -291,6 +395,318 @@ async def verify_user(data: UserVerify):
     except Exception as e:
         logger.error(f"認証エラー: {e}")
         raise HTTPException(status_code=500, detail="認証に失敗しました")
+
+@app.post("/auth/oauth-upsert")
+async def oauth_upsert(data: OAuthUpsert):
+    try:
+        conn = get_db_connection()
+        with conn.cursor() as cur:
+            cur.execute("SELECT id FROM users WHERE email = %s", (data.email,))
+            row = cur.fetchone()
+            if row:
+                user_id = row[0]
+            else:
+                cur.execute(
+                    "INSERT INTO users (email, password_hash, name) VALUES (%s, NULL, %s) RETURNING id",
+                    (data.email, data.name)
+                )
+                user_id = cur.fetchone()[0]
+        conn.commit()
+        conn.close()
+        return {"id": str(user_id), "email": data.email, "name": data.name}
+    except Exception as e:
+        logger.error(f"OAuthユーザー同期エラー: {e}")
+        raise HTTPException(status_code=500, detail="ユーザー情報の同期に失敗しました")
+
+
+# ==========================================
+# グループ認証・所属チェック
+# ==========================================
+def get_current_user(authorization: str = Header(default="")) -> dict:
+    if not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="認証が必要です")
+    token = authorization[len("Bearer "):].strip()
+    try:
+        payload = pyjwt.decode(token, BACKEND_JWT_SECRET, algorithms=["HS256"])
+    except pyjwt.PyJWTError:
+        raise HTTPException(status_code=401, detail="認証トークンが無効です")
+    return {"id": int(payload["sub"]), "email": payload.get("email")}
+
+def require_membership(group_id: int, user: dict = Depends(get_current_user)) -> dict:
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT 1 FROM group_memberships WHERE group_id = %s AND user_id = %s",
+                (group_id, user["id"])
+            )
+            if not cur.fetchone():
+                raise HTTPException(status_code=403, detail="このグループのメンバーではありません")
+    finally:
+        conn.close()
+    return user
+
+# ==========================================
+# グループ管理エンドポイント
+# ==========================================
+@app.post("/groups")
+async def create_group(data: GroupCreate, user: dict = Depends(get_current_user)):
+    conn = get_db_connection()
+    try:
+        group_id = None
+        invite_code = None
+        for _ in range(5):
+            candidate = "".join(secrets.choice(INVITE_CODE_ALPHABET) for _ in range(8))
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "INSERT INTO groups (name, invite_code, created_by) VALUES (%s, %s, %s) RETURNING id",
+                        (data.name, candidate, user["id"])
+                    )
+                    group_id = cur.fetchone()[0]
+                invite_code = candidate
+                break
+            except psycopg2.errors.UniqueViolation:
+                conn.rollback()
+                continue
+        if group_id is None:
+            raise HTTPException(status_code=500, detail="招待コードの生成に失敗しました")
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO group_memberships (group_id, user_id) VALUES (%s, %s)",
+                (group_id, user["id"])
+            )
+        conn.commit()
+        return {"id": group_id, "name": data.name, "invite_code": invite_code}
+    except HTTPException:
+        raise
+    except Exception as e:
+        conn.rollback()
+        logger.error(f"グループ作成エラー: {e}")
+        raise HTTPException(status_code=500, detail="グループの作成に失敗しました")
+    finally:
+        conn.close()
+
+@app.post("/groups/join")
+async def join_group(data: GroupJoin, user: dict = Depends(get_current_user)):
+    conn = get_db_connection()
+    try:
+        code = data.invite_code.strip().upper()
+        with conn.cursor() as cur:
+            cur.execute("SELECT id, name, invite_code FROM groups WHERE invite_code = %s", (code,))
+            row = cur.fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail="招待コードが見つかりません")
+            group_id, name, invite_code = row
+            cur.execute(
+                "INSERT INTO group_memberships (group_id, user_id) VALUES (%s, %s) ON CONFLICT DO NOTHING",
+                (group_id, user["id"])
+            )
+        conn.commit()
+        return {"id": group_id, "name": name, "invite_code": invite_code}
+    except HTTPException:
+        raise
+    except Exception as e:
+        conn.rollback()
+        logger.error(f"グループ参加エラー: {e}")
+        raise HTTPException(status_code=500, detail="グループへの参加に失敗しました")
+    finally:
+        conn.close()
+
+@app.get("/groups/mine")
+async def list_my_groups(user: dict = Depends(get_current_user)):
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT g.id, g.name, g.invite_code
+                FROM groups g
+                JOIN group_memberships gm ON gm.group_id = g.id
+                WHERE gm.user_id = %s
+                ORDER BY gm.joined_at
+            """, (user["id"],))
+            rows = cur.fetchall()
+        return [{"id": r[0], "name": r[1], "invite_code": r[2]} for r in rows]
+    except Exception as e:
+        logger.error(f"グループ一覧取得エラー: {e}")
+        raise HTTPException(status_code=500, detail="グループ一覧の取得に失敗しました")
+    finally:
+        conn.close()
+
+# ==========================================
+# 名簿エンドポイント(グループ単位)
+# ==========================================
+@app.get("/groups/{group_id}/roster")
+async def get_roster(group_id: int, user: dict = Depends(require_membership)):
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT id, grade, name, student_id, birth_date FROM roster_members WHERE group_id = %s ORDER BY id",
+                (group_id,)
+            )
+            rows = cur.fetchall()
+        return [
+            {"id": r[0], "grade": r[1], "name": r[2], "student_id": r[3], "birth_date": r[4]}
+            for r in rows
+        ]
+    except Exception as e:
+        logger.error(f"名簿取得エラー: {e}")
+        raise HTTPException(status_code=500, detail="名簿の取得に失敗しました")
+    finally:
+        conn.close()
+
+@app.put("/groups/{group_id}/roster")
+async def replace_roster(group_id: int, data: RosterReplace, user: dict = Depends(require_membership)):
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM roster_members WHERE group_id = %s", (group_id,))
+            inserted = []
+            for m in data.members:
+                cur.execute(
+                    """
+                    INSERT INTO roster_members (group_id, grade, name, student_id, birth_date)
+                    VALUES (%s, %s, %s, %s, %s) RETURNING id
+                    """,
+                    (group_id, m.grade, m.name, m.student_id, m.birth_date)
+                )
+                new_id = cur.fetchone()[0]
+                inserted.append({
+                    "id": new_id, "grade": m.grade, "name": m.name,
+                    "student_id": m.student_id, "birth_date": m.birth_date
+                })
+        conn.commit()
+        return inserted
+    except Exception as e:
+        conn.rollback()
+        logger.error(f"名簿更新エラー: {e}")
+        raise HTTPException(status_code=500, detail="名簿の更新に失敗しました")
+    finally:
+        conn.close()
+
+# ==========================================
+# スケジュールエンドポイント(グループ単位)
+# ==========================================
+@app.get("/groups/{group_id}/schedule")
+async def list_schedule(group_id: int, user: dict = Depends(require_membership)):
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT id, date, title, time, note, color_hex FROM schedule_events WHERE group_id = %s ORDER BY date, id",
+                (group_id,)
+            )
+            rows = cur.fetchall()
+        return [
+            {"id": r[0], "date": r[1], "title": r[2], "time": r[3], "note": r[4], "color_hex": r[5]}
+            for r in rows
+        ]
+    except Exception as e:
+        logger.error(f"スケジュール取得エラー: {e}")
+        raise HTTPException(status_code=500, detail="スケジュールの取得に失敗しました")
+    finally:
+        conn.close()
+
+@app.post("/groups/{group_id}/schedule")
+async def create_schedule_event(group_id: int, data: ScheduleEventIn, user: dict = Depends(require_membership)):
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO schedule_events (group_id, date, title, time, note, color_hex)
+                VALUES (%s, %s, %s, %s, %s, %s) RETURNING id
+                """,
+                (group_id, data.date, data.title, data.time, data.note, data.color_hex)
+            )
+            new_id = cur.fetchone()[0]
+        conn.commit()
+        return {
+            "id": new_id, "date": data.date, "title": data.title,
+            "time": data.time, "note": data.note, "color_hex": data.color_hex
+        }
+    except Exception as e:
+        conn.rollback()
+        logger.error(f"スケジュール追加エラー: {e}")
+        raise HTTPException(status_code=500, detail="スケジュールの追加に失敗しました")
+    finally:
+        conn.close()
+
+@app.delete("/groups/{group_id}/schedule/{event_id}")
+async def delete_schedule_event(group_id: int, event_id: int, user: dict = Depends(require_membership)):
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM schedule_events WHERE id = %s AND group_id = %s",
+                (event_id, group_id)
+            )
+        conn.commit()
+        return {"ok": True}
+    except Exception as e:
+        conn.rollback()
+        logger.error(f"スケジュール削除エラー: {e}")
+        raise HTTPException(status_code=500, detail="スケジュールの削除に失敗しました")
+    finally:
+        conn.close()
+
+# ==========================================
+# 合宿データエンドポイント(グループ単位)
+# ==========================================
+@app.get("/groups/{group_id}/camp")
+async def get_camp_data(group_id: int, user: dict = Depends(require_membership)):
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT period_start, period_end, attendance, deposit_paid, cost_settings FROM camp_data WHERE group_id = %s",
+                (group_id,)
+            )
+            row = cur.fetchone()
+        if not row:
+            return {
+                "period_start": "", "period_end": "",
+                "attendance": {}, "deposit_paid": {}, "cost_settings": {}
+            }
+        return {
+            "period_start": row[0], "period_end": row[1],
+            "attendance": row[2], "deposit_paid": row[3], "cost_settings": row[4]
+        }
+    except Exception as e:
+        logger.error(f"合宿データ取得エラー: {e}")
+        raise HTTPException(status_code=500, detail="合宿データの取得に失敗しました")
+    finally:
+        conn.close()
+
+@app.put("/groups/{group_id}/camp")
+async def upsert_camp_data(group_id: int, data: CampDataIn, user: dict = Depends(require_membership)):
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO camp_data (group_id, period_start, period_end, attendance, deposit_paid, cost_settings, updated_at)
+                VALUES (%s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
+                ON CONFLICT (group_id) DO UPDATE SET
+                    period_start = EXCLUDED.period_start,
+                    period_end = EXCLUDED.period_end,
+                    attendance = EXCLUDED.attendance,
+                    deposit_paid = EXCLUDED.deposit_paid,
+                    cost_settings = EXCLUDED.cost_settings,
+                    updated_at = CURRENT_TIMESTAMP
+                """,
+                (group_id, data.period_start, data.period_end,
+                 Json(data.attendance), Json(data.deposit_paid), Json(data.cost_settings))
+            )
+        conn.commit()
+        return {"ok": True}
+    except Exception as e:
+        conn.rollback()
+        logger.error(f"合宿データ更新エラー: {e}")
+        raise HTTPException(status_code=500, detail="合宿データの更新に失敗しました")
+    finally:
+        conn.close()
 
 
 # ==========================================

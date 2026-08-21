@@ -1,76 +1,13 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo, useRef, type PointerEvent as ReactPointerEvent } from "react";
-
-type Member = {
-  grade: string;
-  name: string;
-  studentId: string;
-  birthDate: string;
-};
-
-type Period = {
-  start: string;
-  end: string;
-};
-
-const MEALS = ["朝", "昼", "夜"] as const;
-type Meal = (typeof MEALS)[number];
-
-// 氏名 -> 日付 -> 食事 -> 参加有無
-type Attendance = Record<string, Record<string, Record<Meal, boolean>>>;
-
-// 氏名 -> 前金を徴収済みか
-type DepositPaid = Record<string, boolean>;
-
-type CostItem = { label: string; amount: number };
-
-type MealPrices = Record<Meal, number>;
-
-// BBQなど、特定の日だけ夕食が通常と異なる単価になる場合の設定
-type SpecialDinnerPrice = { id: string; date: string; price: number };
-
-type CostSettings = {
-  lodgingFee: number;
-  mealPrices: MealPrices;
-  specialDinnerPrices: SpecialDinnerPrice[];
-  depositAmount: number;
-  items: CostItem[];
-};
-
-const DEFAULT_COST_SETTINGS: CostSettings = {
-  lodgingFee: 8400,
-  mealPrices: { 朝: 0, 昼: 0, 夜: 0 },
-  specialDinnerPrices: [],
-  depositAmount: 0,
-  items: [
-    { label: "宴会費", amount: 0 },
-    { label: "保険料", amount: 0 },
-    { label: "バス代", amount: 0 },
-    { label: "施設利用料", amount: 0 },
-    { label: "備品費", amount: 0 },
-  ],
-};
-
-const ROSTER_KEY = "roster_members";
-const CAMP_PERIOD_KEY = "camp_period";
-const CAMP_ATTENDANCE_KEY = "camp_attendance";
-const CAMP_COST_KEY = "camp_cost_settings";
-const CAMP_DEPOSIT_KEY = "camp_deposit_paid";
+import {
+  useCampData, MEALS,
+  type Meal, type CostSettings, type CostItem, type SpecialDinnerPrice,
+} from "./useCampData";
+import { useRosterMembers } from "../roster/useRosterMembers";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-
-// 旧形式(日単位のbooleanのみ)のデータが残っていた場合は破棄して作り直す
-function isValidAttendanceShape(a: unknown): a is Attendance {
-  if (!a || typeof a !== "object") return false;
-  for (const byDate of Object.values(a as Record<string, unknown>)) {
-    if (!byDate || typeof byDate !== "object") return false;
-    for (const byMeal of Object.values(byDate as Record<string, unknown>)) {
-      if (!byMeal || typeof byMeal !== "object") return false;
-    }
-  }
-  return true;
-}
 
 function getDatesInRange(start: string, end: string): string[] {
   const dates: string[] = [];
@@ -103,52 +40,19 @@ function defaultMealValue(dateIndex: number, meal: Meal, totalDates: number): bo
   return true;
 }
 
-export default function CampApp() {
+export default function CampApp({ groupId }: { groupId: string }) {
   const [section, setSection] = useState<"settings" | "roster">("settings");
-  const [period, setPeriod] = useState<Period>({ start: "", end: "" });
-  const [attendance, setAttendance] = useState<Attendance>({});
-  const [depositPaid, setDepositPaid] = useState<DepositPaid>({});
-  const [members, setMembers] = useState<Member[]>([]);
+  const {
+    period, setPeriod,
+    attendance, setAttendance,
+    depositPaid, setDepositPaid,
+    costSettings, setCostSettings,
+    flush,
+  } = useCampData(groupId);
+  const { members } = useRosterMembers(groupId);
   const [saved, setSaved] = useState(false);
-  const [costSettings, setCostSettings] = useState<CostSettings>(DEFAULT_COST_SETTINGS);
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState("");
-
-  useEffect(() => {
-    const p = localStorage.getItem(CAMP_PERIOD_KEY);
-    if (p) setPeriod(JSON.parse(p));
-
-    const a = localStorage.getItem(CAMP_ATTENDANCE_KEY);
-    if (a) {
-      try {
-        const parsed = JSON.parse(a);
-        if (isValidAttendanceShape(parsed)) setAttendance(parsed);
-      } catch {}
-    }
-
-    const r = localStorage.getItem(ROSTER_KEY);
-    if (r) {
-      try { setMembers(JSON.parse(r)); } catch {}
-    }
-
-    const dp = localStorage.getItem(CAMP_DEPOSIT_KEY);
-    if (dp) {
-      try { setDepositPaid(JSON.parse(dp)); } catch {}
-    }
-
-    const c = localStorage.getItem(CAMP_COST_KEY);
-    if (c) {
-      try {
-        const parsed = JSON.parse(c);
-        setCostSettings({
-          ...DEFAULT_COST_SETTINGS,
-          ...parsed,
-          mealPrices: { ...DEFAULT_COST_SETTINGS.mealPrices, ...(parsed.mealPrices ?? {}) },
-          specialDinnerPrices: parsed.specialDinnerPrices ?? [],
-        });
-      } catch {}
-    }
-  }, []);
 
   const dates = useMemo(
     () => (period.start && period.end ? getDatesInRange(period.start, period.end) : []),
@@ -158,8 +62,7 @@ export default function CampApp() {
 
   const saveCostSettings = useCallback((next: CostSettings) => {
     setCostSettings(next);
-    localStorage.setItem(CAMP_COST_KEY, JSON.stringify(next));
-  }, []);
+  }, [setCostSettings]);
 
   const updateLodgingFee = (value: number) => {
     saveCostSettings({ ...costSettings, lodgingFee: value });
@@ -212,16 +115,11 @@ export default function CampApp() {
 
   const savePeriod = () => {
     if (!period.start || !period.end || period.start > period.end) return;
-    localStorage.setItem(CAMP_PERIOD_KEY, JSON.stringify(period));
 
     const dates = getDatesInRange(period.start, period.end);
-    const members_: Member[] = (() => {
-      const r = localStorage.getItem(ROSTER_KEY);
-      return r ? JSON.parse(r) : [];
-    })();
     setAttendance(prev => {
-      const next: Attendance = {};
-      for (const m of members_) {
+      const next: typeof prev = {};
+      for (const m of members) {
         next[m.name] = {};
         dates.forEach((d, i) => {
           const prevMeal = prev[m.name]?.[d];
@@ -232,7 +130,6 @@ export default function CampApp() {
           };
         });
       }
-      localStorage.setItem(CAMP_ATTENDANCE_KEY, JSON.stringify(next));
       return next;
     });
     setSaved(true);
@@ -245,25 +142,19 @@ export default function CampApp() {
       const prevMember = prev[name] ?? {};
       const prevDate = prevMember[date] ?? { 朝: false, 昼: false, 夜: false };
       if (prevDate[meal] === value) return prev;
-      const next: Attendance = {
+      return {
         ...prev,
         [name]: {
           ...prevMember,
           [date]: { ...prevDate, [meal]: value },
         },
       };
-      localStorage.setItem(CAMP_ATTENDANCE_KEY, JSON.stringify(next));
-      return next;
     });
-  }, []);
+  }, [setAttendance]);
 
   const toggleDeposit = useCallback((name: string) => {
-    setDepositPaid(prev => {
-      const next = { ...prev, [name]: !prev[name] };
-      localStorage.setItem(CAMP_DEPOSIT_KEY, JSON.stringify(next));
-      return next;
-    });
-  }, []);
+    setDepositPaid(prev => ({ ...prev, [name]: !prev[name] }));
+  }, [setDepositPaid]);
 
   // 明示的に出欠が記録されていないマス目は、既定ルール(初日朝食・最終日夕食を除き参加)を表示に反映する
   const getMealAttendance = useCallback((name: string, date: string, dateIndex: number, meal: Meal): boolean => {
@@ -407,15 +298,14 @@ export default function CampApp() {
 
   const toggleAllMeal = useCallback((date: string, meal: Meal, value: boolean) => {
     setAttendance(prev => {
-      const next: Attendance = { ...prev };
+      const next = { ...prev };
       for (const name of Object.keys(next)) {
         const prevDate = next[name][date] ?? { 朝: false, 昼: false, 夜: false };
         next[name] = { ...next[name], [date]: { ...prevDate, [meal]: value } };
       }
-      localStorage.setItem(CAMP_ATTENDANCE_KEY, JSON.stringify(next));
       return next;
     });
-  }, []);
+  }, [setAttendance]);
 
   // 泊数(宿泊費の対象): 最終日は夜に宿泊しないため、最終日の夕食は
   // ○であっても泊数には数えない(食費としては引き続き計算される)
@@ -447,17 +337,16 @@ export default function CampApp() {
               夜: defaultMealValue(i, "夜", dates.length),
             };
       });
-      const next: Attendance = { ...prev, [name]: nextMember };
-      localStorage.setItem(CAMP_ATTENDANCE_KEY, JSON.stringify(next));
-      return next;
+      return { ...prev, [name]: nextMember };
     });
-  }, [dates]);
+  }, [dates, setAttendance]);
 
   const exportExcel = async () => {
     if (!period.start || !period.end) return;
     setExporting(true);
     setExportError("");
     try {
+      await flush();
       const res = await fetch(`${API_BASE}/export-camp-roster`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },

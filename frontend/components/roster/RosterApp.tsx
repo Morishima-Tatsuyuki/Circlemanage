@@ -1,15 +1,7 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
-
-type Member = {
-  grade: string;
-  name: string;
-  studentId: string;
-  birthDate: string;
-};
-
-const STORAGE_KEY = "roster_members";
+import { useRef, useState } from "react";
+import { useRosterMembers, type RosterMember } from "./useRosterMembers";
 
 const TEMPLATE_ROWS = [
   "学年,名前,学籍番号,生年月日",
@@ -17,17 +9,10 @@ const TEMPLATE_ROWS = [
   "2,鈴木花子,12345679,2004-06-15",
 ].join("\n");
 
-export default function RosterApp() {
-  const [members, setMembers] = useState<Member[]>([]);
+export default function RosterApp({ groupId }: { groupId: string }) {
+  const { members, setMembers } = useRosterMembers(groupId);
   const [error, setError] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) {
-      try { setMembers(JSON.parse(saved)); } catch {}
-    }
-  }, []);
 
   const downloadTemplate = () => {
     const blob = new Blob(["﻿" + TEMPLATE_ROWS], { type: "text/csv;charset=utf-8;" });
@@ -62,7 +47,7 @@ export default function RosterApp() {
           return;
         }
 
-        const parsed: Member[] = lines.slice(1)
+        const parsed: RosterMember[] = lines.slice(1)
           .map(line => {
             const cols = line.split(",").map(c => c.trim());
             return {
@@ -74,8 +59,7 @@ export default function RosterApp() {
           })
           .filter(m => m.name);
 
-        setMembers(parsed);
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(parsed));
+        setMembers(parsed).catch(() => setError("名簿の保存に失敗しました"));
       } catch {
         setError("CSVの読み込みに失敗しました");
       }
@@ -85,11 +69,10 @@ export default function RosterApp() {
   };
 
   const clearMembers = () => {
-    setMembers([]);
-    localStorage.removeItem(STORAGE_KEY);
+    setMembers([]).catch(() => setError("名簿の削除に失敗しました"));
   };
 
-  const grouped = members.reduce<Record<string, Member[]>>((acc, m) => {
+  const grouped = members.reduce<Record<string, RosterMember[]>>((acc, m) => {
     const key = m.grade || "不明";
     (acc[key] ??= []).push(m);
     return acc;
