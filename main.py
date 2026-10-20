@@ -1095,8 +1095,7 @@ def run_optimization_amplify(
     driver_W: List[List[int]],
     fixstars_key: str
 ) -> dict:
-    from amplify import VariableGenerator, Model, solve, equal_to, less_equal
-    from amplify.client import FixstarsClient
+    from amplify import VariableGenerator, Model, solve, equal_to, less_equal, FixstarsClient
     from amplify import sum as asum
 
     num_people = len(passengers)

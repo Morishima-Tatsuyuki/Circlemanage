@@ -23,6 +23,7 @@ type Result = {
   method: string;
   distance_method?: string;
   distance_error?: string;
+  amplify_error?: string | null;
   objective?: number;
   feasible?: boolean;
   error?: string;
@@ -463,6 +464,9 @@ export default function HaishaForm() {
               )}
               {result.distance_error && (
                 <p className="text-xs text-red-400 dark:text-red-500 pl-1">⚠ {result.distance_error}</p>
+              )}
+              {result.amplify_error && (
+                <p className="text-xs text-red-400 dark:text-red-500 pl-1">⚠ Amplify: {result.amplify_error}</p>
               )}
             </div>
             {result.error ? (
