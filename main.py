@@ -260,7 +260,8 @@ class Member(BaseModel):
 class EventData(BaseModel):
     members: List[Member]
     target_arrival: Optional[str] = ""
-    p_score: Optional[int] = -5
+    # 「一緒になりたい人」の重み。距離行列(分)と同じ単位で、-30なら30分の遠回りまで許容して同乗させる
+    p_score: Optional[int] = -30
 
 class FormConfig(BaseModel):
     access_token: str
@@ -791,7 +792,7 @@ async def assign_members(data: EventData):
     for m in members:
         m.station = normalize_station(m.station)
 
-    W, driver_W = build_relation_matrix(passengers, drivers, data.p_score or -5)
+    W, driver_W = build_relation_matrix(passengers, drivers, data.p_score or -30)
 
     d_matrix = None
     navitime_used = False

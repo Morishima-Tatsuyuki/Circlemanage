@@ -263,7 +263,7 @@ export default function HaishaForm() {
         awkward_with: m.awkward_with ? m.awkward_with.split(",").map((s) => s.trim()).filter(Boolean) : [],
       })),
       target_arrival: targetArrival,
-      p_score: -5,
+      p_score: -30,
     };
     setLoading(true); setResult(null);
     try {
