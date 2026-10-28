@@ -14,7 +14,8 @@ import requests
 import secrets
 import string
 import jwt as pyjwt
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor, as_completed
+from concurrent.futures.process import BrokenProcessPool
 from datetime import datetime
 from urllib.parse import quote
 from dotenv import load_dotenv
@@ -831,14 +832,21 @@ async def assign_members(data: EventData):
     else:
         logger.info("Amplify 最適化を開始します")
         try:
-            result = run_optimization_amplify(
-                passengers, drivers, d_matrix, C, W, driver_W, FIXSTARS_API_KEY
-            )
+            # amplifyはネイティブ拡張のため、CPU非対応の版だとSIGILLでプロセスごと落ちる
+            # (ラズパイ3で1.7.x)。別プロセスで実行し、落ちてもグリーディーにフォールバックさせる
+            with ProcessPoolExecutor(max_workers=1) as executor:
+                result = executor.submit(
+                    run_optimization_amplify,
+                    passengers, drivers, d_matrix, C, W, driver_W, FIXSTARS_API_KEY
+                ).result()
             logger.info(f"Amplify 最適化成功: feasible={result.get('feasible')}, objective={result.get('objective')}")
             result["distance_method"] = distance_method
             result["distance_error"] = navitime_error
             result["amplify_error"] = None
             return result
+        except BrokenProcessPool as e:
+            amplify_error = "Amplifyのプロセスが異常終了しました(このCPUで非対応のamplifyバージョンの可能性)"
+            logger.error(f"Amplify 最適化失敗: {e}")
         except Exception as e:
             amplify_error = str(e)
             logger.error(f"Amplify 最適化失敗: {e}", exc_info=True)
